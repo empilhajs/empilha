@@ -368,16 +368,22 @@ export function openApiHtml(): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>API Documentation</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self';">
+    <style>body { font-family: system-ui, sans-serif; margin: 2rem; } pre { white-space: pre-wrap; }</style>
   </head>
   <body>
     <div id="swagger-ui"></div>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
-      SwaggerUIBundle({
-        url: "${OPENAPI_DOCUMENT_PATH}",
-        dom_id: "#swagger-ui"
-      })
+      fetch("${OPENAPI_DOCUMENT_PATH}")
+        .then(response => response.ok ? response.json() : Promise.reject(response.status))
+        .then(openApiDocument => {
+          const output = document.createElement("pre");
+          output.textContent = JSON.stringify(openApiDocument, null, 2);
+          document.getElementById("swagger-ui").replaceChildren(output);
+        })
+        .catch(() => {
+          document.getElementById("swagger-ui").textContent = "Unable to load OpenAPI document.";
+        });
     </script>
   </body>
 </html>`;

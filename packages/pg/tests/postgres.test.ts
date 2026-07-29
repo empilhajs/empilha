@@ -6,7 +6,12 @@ describe("@empilha/pg", () => {
     let received:
       | {
           pool: {
-            options: { connectionString?: string; max?: number }
+            options: {
+              connectionString?: string
+              max?: number
+              statement_timeout?: number
+              query_timeout?: number
+            }
             end: () => Promise<void>
           }
           options: {
@@ -35,6 +40,8 @@ describe("@empilha/pg", () => {
       "postgres://localhost/empilha",
     )
     expect(received?.pool.options.max).toBe(4)
+    expect(received?.pool.options.statement_timeout).toBe(2500)
+    expect(received?.pool.options.query_timeout).toBe(2500)
     expect(received?.options).toEqual({
       sql: "./queries",
       timeout: 2500,

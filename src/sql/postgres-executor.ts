@@ -68,7 +68,7 @@ export function postgresRunner(pool: PostgresPool): PostgresQueryRunner {
   };
 
   return {
-    query: (sql, params, _options) => pool.query(sql, params),
+    query: (sql, params) => pool.query(sql, params),
     connect: wrapClient,
   };
 }

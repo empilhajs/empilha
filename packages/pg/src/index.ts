@@ -16,7 +16,17 @@ export type PostgresPluginOptions = Omit<PoolConfig, "connectionString"> &
  */
 export function postgres(options: PostgresPluginOptions): EmpilhaPlugin {
   const { url, sql, timeout, healthCheck, ...poolOptions } = options
-  const pool = new Pool({ ...poolOptions, connectionString: url })
+  const poolConfig: PoolConfig = {
+    ...poolOptions,
+    connectionString: url,
+  }
+
+  if (timeout !== undefined && timeout !== null) {
+    poolConfig.statement_timeout ??= timeout
+    poolConfig.query_timeout ??= timeout
+  }
+
+  const pool = new Pool(poolConfig)
 
   return definePlugin((app) => {
     app.postgres(pool, {
