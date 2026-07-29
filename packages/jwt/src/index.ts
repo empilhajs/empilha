@@ -12,12 +12,15 @@ export type JwtOptions = {
   secret: string
   algorithm?: "HS256" | "HS384" | "HS512"
   expiresIn?: string | number
+  /** Tokens de acesso e de atualização devem utilizar finalidades diferentes. */
+  tokenUse?: "access" | "refresh"
   issuer?: string
   audience?: string | string[]
 }
 
 export type JwtService<TPayload extends JwtClaims = JwtClaims> = {
   readonly name: string
+  readonly tokenUse: "access" | "refresh"
   sign(payload: TPayload): Promise<string>
   verify(token: string): Promise<TPayload | false>
   auth(options?: {
@@ -36,6 +39,9 @@ export async function refreshAccessToken<TPayload extends JwtClaims = JwtClaims>
 ): Promise<string | false> {
   const payload = await refresh.verify(refreshToken)
   if (!payload) return false
+  if (refresh.tokenUse !== "refresh" || payload.token_use !== "refresh") {
+    return false
+  }
 
   const {
     exp: _exp,
@@ -57,18 +63,29 @@ export function jwt<TPayload extends JwtClaims = JwtClaims>(
   if (!name) throw new Error("O nome do JWT não pode ser vazio.")
   if (!options.secret) throw new Error("O segredo JWT não pode ser vazio.")
 
+  const secretBytes = new TextEncoder().encode(options.secret)
+  const minimumSecretBytes =
+    algorithmMinimumSecretBytes(options.algorithm ?? "HS256")
+  if (secretBytes.byteLength < minimumSecretBytes) {
+    throw new Error(
+      `O segredo JWT deve conter pelo menos ${minimumSecretBytes} bytes de material aleatório.`,
+    )
+  }
+
   const algorithm = options.algorithm ?? "HS256"
-  const secret = new TextEncoder().encode(options.secret)
+  const tokenUse = options.tokenUse ?? (name === "refresh" ? "refresh" : "access")
+  const expiresIn = options.expiresIn ?? (tokenUse === "refresh" ? "7d" : "15m")
+  const secret = secretBytes
 
   const service: JwtService<TPayload> = {
     name,
+    tokenUse,
     async sign(payload) {
-      let token = new SignJWT(payload)
+      let token = new SignJWT({ ...payload, token_use: tokenUse })
         .setProtectedHeader({ alg: algorithm })
         .setIssuedAt()
 
-      if (options.expiresIn !== undefined)
-        token = token.setExpirationTime(options.expiresIn)
+      token = token.setExpirationTime(expiresIn)
       if (options.issuer) token = token.setIssuer(options.issuer)
       if (options.audience) token = token.setAudience(options.audience)
 
@@ -81,6 +98,7 @@ export function jwt<TPayload extends JwtClaims = JwtClaims>(
           issuer: options.issuer,
           audience: options.audience,
         })
+        if (typeof payload.exp !== "number") return false
         return payload as TPayload
       } catch {
         return false
@@ -120,4 +138,17 @@ function rolesFromPayload(payload: JwtClaims): string[] | undefined {
   }
 
   return roles
+}
+
+function algorithmMinimumSecretBytes(
+  algorithm: JwtOptions["algorithm"],
+): number {
+  switch (algorithm) {
+    case "HS384":
+      return 48
+    case "HS512":
+      return 64
+    default:
+      return 32
+  }
 }

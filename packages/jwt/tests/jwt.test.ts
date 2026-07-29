@@ -3,10 +3,11 @@ import { Inject } from "empilha"
 import { jwt, refreshAccessToken } from "../src"
 
 describe("@empilha/jwt", () => {
+  const secret = "test-secret-with-at-least-32-bytes-123456"
   test("assina e verifica um token com claims configuradas", async () => {
     const service = jwt({
       name: "access",
-      secret: "test-secret",
+      secret,
       issuer: "empilha",
       audience: "api",
       expiresIn: "1h",
@@ -26,12 +27,12 @@ describe("@empilha/jwt", () => {
   test("retorna false para token inválido ou claims incompatíveis", async () => {
     const service = jwt({
       name: "access",
-      secret: "test-secret",
+      secret,
       issuer: "empilha",
     })
     const otherIssuer = jwt({
       name: "access",
-      secret: "test-secret",
+      secret,
       issuer: "other",
     })
 
@@ -42,7 +43,7 @@ describe("@empilha/jwt", () => {
   })
 
   test("integra autenticação e roles com o plugin do Empilha", async () => {
-    const service = jwt({ name: "access", secret: "test-secret" })
+    const service = jwt({ name: "access", secret })
     let authHandler: ((token: string) => Promise<unknown>) | undefined
     const registered: string[] = []
 
@@ -68,7 +69,7 @@ describe("@empilha/jwt", () => {
     expect(() => jwt({ name: "", secret: "secret" })).toThrow("nome do JWT")
     expect(() => jwt({ name: "access", secret: "" })).toThrow("segredo JWT")
 
-    const service = jwt({ name: "access", secret: "secret" })
+    const service = jwt({ name: "access", secret })
     let authHandler: ((token: string) => Promise<unknown>) | undefined
     service.auth({ roles: () => ["custom"] }).install({
       registerPluginService() {},
@@ -86,8 +87,8 @@ describe("@empilha/jwt", () => {
   })
 
   test("emite novo access token a partir de refresh token válido", async () => {
-    const access = jwt({ name: "access", secret: "access-secret" })
-    const refresh = jwt({ name: "refresh", secret: "refresh-secret" })
+    const access = jwt({ name: "access", secret: `${secret}-access` })
+    const refresh = jwt({ name: "refresh", secret: `${secret}-refresh` })
     const refreshToken = await refresh.sign({ sub: "user-1", roles: ["user"] })
 
     const accessToken = await refreshAccessToken(access, refresh, refreshToken)
@@ -97,6 +98,15 @@ describe("@empilha/jwt", () => {
       roles: ["user"],
     })
     expect(await refreshAccessToken(access, refresh, "invalid")).toBe(false)
+  })
+
+  test("rejeita segredo fraco e purpose incorreto", async () => {
+    expect(() => jwt({ name: "access", secret: "short" })).toThrow("32 bytes")
+
+    const access = jwt({ name: "access", secret })
+    const refresh = jwt({ name: "refresh", secret: `${secret}-refresh-2` })
+    const accessToken = await access.sign({ sub: "user-1" })
+    expect(await refreshAccessToken(access, refresh, accessToken)).toBe(false)
   })
 
   test("usa o decorator Inject do framework para serviços JWT", () => {
