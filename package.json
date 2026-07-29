@@ -1,0 +1,105 @@
+{
+  "name": "empilha",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
+  "keywords": [
+    "bun",
+    "decorators",
+    "framework",
+    "http",
+    "postgresql",
+    "typescript"
+  ],
+  "homepage": "https://github.com/empilhajs/empilha#readme",
+  "bugs": {
+    "url": "https://github.com/empilhajs/empilha/issues"
+  },
+  "license": "MIT",
+  "author": "Everton Da Silva Vieira",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/empilhajs/empilha.git"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "docs",
+    "README.md"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./application": {
+      "types": "./dist/application/index.d.ts",
+      "import": "./dist/application/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "import": "./dist/context/index.js"
+    },
+    "./decorators": {
+      "types": "./dist/decorators/index.d.ts",
+      "import": "./dist/decorators/index.js"
+    },
+    "./di": {
+      "types": "./dist/di/index.d.ts",
+      "import": "./dist/di/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors/index.d.ts",
+      "import": "./dist/errors/index.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "import": "./dist/http/index.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi/index.d.ts",
+      "import": "./dist/openapi/index.js"
+    },
+    "./sql": {
+      "types": "./dist/sql/index.d.ts",
+      "import": "./dist/sql/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts src/application/index.ts src/context/index.ts src/decorators/index.ts src/di/index.ts src/errors/index.ts src/http/index.ts src/openapi/index.ts src/schema/index.ts src/sql/index.ts --outdir dist --target bun --format esm --external @sinclair/typebox --root src && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run build",
+    "check": "bun run check:code && bun run check:tests && bun run check:packages && bun run build",
+    "check:packages": "bun run --cwd packages/jwt check && bun run --cwd packages/pg check && bun run --cwd scaffold check",
+    "check:code": "bun run typecheck && bun run format:check && bun run lint",
+    "check:tests": "bun run test",
+    "create:app": "bun scripts/create-app.ts",
+    "migrate": "bun scripts/migrate.ts",
+    "format": "oxfmt src tests scripts scaffold docs README.md package.json tsconfig.json tsconfig.build.json .oxfmtrc.json .oxlintrc.json",
+    "format:check": "bun run format --check",
+    "lint": "oxlint src tests scripts scaffold --deny-warnings",
+    "test": "bun test tests/compiler tests/framework tests/http tests/router tests/runtime tests/sql",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.52"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^26.1.1",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}

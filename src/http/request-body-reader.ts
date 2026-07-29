@@ -1,0 +1,169 @@
+import { abortRequestScope, type RequestScope } from "../context/index";
+
+const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const JSON_DECODER = new TextDecoder();
+
+/** Erro de leitura do body com status HTTP específico. */
+export class RequestBodyError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+/**
+ * Lê e valida o body JSON de uma requisição.
+ *
+ * A leitura é feita em chunks para respeitar o limite de bytes antes de
+ * montar a string completa. O timeout cancela o reader e o request scope.
+ */
+export class JsonBodyReader {
+  private maxBytes = DEFAULT_MAX_BODY_BYTES;
+
+  private timeoutMs: number | null = null;
+
+  get hasTimeout(): boolean {
+    return this.timeoutMs !== null;
+  }
+
+  /** Define o limite máximo do body em bytes. */
+  setMaxBytes(bytes: number): void {
+    if (!Number.isInteger(bytes) || bytes <= 0) {
+      throw new RangeError("O limite do body deve ser um inteiro positivo.");
+    }
+
+    this.maxBytes = bytes;
+  }
+
+  /** Define o timeout de leitura ou `null` para desabilitá-lo. */
+  setTimeout(milliseconds: number | null): void {
+    if (
+      milliseconds !== null &&
+      (!Number.isInteger(milliseconds) || milliseconds <= 0)
+    ) {
+      throw new RangeError(
+        "O timeout de body deve ser um inteiro positivo ou null.",
+      );
+    }
+
+    this.timeoutMs = milliseconds;
+  }
+
+  /**
+   * Lê, decodifica e faz parse do body JSON.
+   *
+   * @param request - Request cujo body será consumido.
+   * @param scope - Scope usado para abortar a leitura em timeout.
+   * @returns Valor produzido por `JSON.parse`, ou `undefined` para body vazio.
+   * @throws {RequestBodyError} Para JSON inválido, body excedente ou timeout.
+   */
+  async read(request: Request, scope?: RequestScope): Promise<unknown> {
+    const declaredLength = this.getDeclaredContentLength(request);
+
+    this.assertContentLength(declaredLength);
+
+    if (!request.body) {
+      return undefined;
+    }
+
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let timedOut: Promise<never> | undefined;
+    let bodyTimedOut = false;
+
+    if (this.timeoutMs !== null) {
+      timedOut = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          bodyTimedOut = true;
+          const error = new RequestBodyError(408, "Request body timeout");
+
+          if (scope) abortRequestScope(scope, error);
+          reject(error);
+          void reader.cancel(error).catch(() => {});
+        }, this.timeoutMs as number);
+      });
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await (timedOut
+          ? Promise.race([reader.read(), timedOut])
+          : reader.read());
+
+        if (done) {
+          break;
+        }
+
+        if (!value) {
+          continue;
+        }
+
+        totalBytes += value.byteLength;
+
+        if (totalBytes > this.maxBytes) {
+          try {
+            await reader.cancel();
+          } catch {
+            // O erro de limite é mais relevante.
+          }
+
+          throw new RequestBodyError(413, "Payload too large");
+        }
+
+        chunks.push(value);
+      }
+    } finally {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+
+      if (!bodyTimedOut) {
+        reader.releaseLock();
+      }
+    }
+
+    if (totalBytes === 0) {
+      return undefined;
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return this.parseJson(JSON_DECODER.decode(bytes));
+  }
+
+  private parseJson(text: string): unknown {
+    try {
+      return JSON.parse(text.replace(/^\uFEFF/, "")) as unknown;
+    } catch {
+      throw new RequestBodyError(400, "Invalid JSON body");
+    }
+  }
+
+  private getDeclaredContentLength(request: Request): number | null {
+    const contentLength = request.headers.get("content-length");
+
+    if (contentLength === null) return null;
+
+    const declaredLength = Number(contentLength);
+    return Number.isFinite(declaredLength) && declaredLength >= 0
+      ? declaredLength
+      : null;
+  }
+
+  private assertContentLength(declaredLength: number | null): void {
+    if (declaredLength !== null && declaredLength > this.maxBytes) {
+      throw new RequestBodyError(413, "Payload too large");
+    }
+  }
+}

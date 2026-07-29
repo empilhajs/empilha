@@ -1,0 +1,8 @@
+node_modules/
+dist/
+benchmark/node_modules/
+*.tsbuildinfo
+*.tgz
+.env
+.env.*
+!.env.example

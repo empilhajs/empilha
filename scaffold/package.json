@@ -1,0 +1,21 @@
+{
+  "name": "empilha-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun node_modules/empilha/scripts/dev.ts src/app.ts",
+    "start": "bun src/app.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun run test",
+    "migrate": "bun node_modules/empilha/scripts/migrate.ts",
+    "generate:queries": "bun node_modules/empilha/scripts/generate-query-types.ts ./src/queries ./src/queries/query-names.ts queryNames"
+  },
+  "dependencies": {
+    "empilha": "^0.1.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  }
+}
