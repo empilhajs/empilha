@@ -28,8 +28,8 @@ const abortControllers = new WeakMap<RequestScope, AbortController>();
 /**
  * Cria um escopo com container, cancelamento e tarefas pendentes.
  *
- * O `AbortController` é criado sob demanda na primeira leitura de `signal`.
- * Isso evita uma alocação quando a rota não usa timeout, SQL ou cancelamento.
+ * O `AbortController` é criado junto com o scope para que timeout e shutdown
+ * sempre abortem exatamente o mesmo signal que uma leitura posterior retorna.
  *
  * @param request - Request HTTP original.
  * @param container - Container filho associado à requisição.
@@ -41,15 +41,7 @@ export function createRequestScope(
 ): RequestScope {
   let requestId: string | undefined;
   let tasks: Set<Promise<unknown>> | undefined;
-  let abortController: AbortController | undefined;
-
-  const ensureAbortController = (): AbortController => {
-    if (!abortController) {
-      abortController = new AbortController();
-      abortControllers.set(scope, abortController);
-    }
-    return abortController;
-  };
+  const abortController = new AbortController();
 
   const scope: RequestScope = {
     get requestId() {
@@ -57,9 +49,7 @@ export function createRequestScope(
     },
     request,
     container,
-    get signal() {
-      return ensureAbortController().signal;
-    },
+    signal: abortController.signal,
     waitUntil(task) {
       tasks ??= new Set<Promise<unknown>>();
       const currentTasks = tasks;
@@ -72,6 +62,8 @@ export function createRequestScope(
       );
     },
   };
+
+  abortControllers.set(scope, abortController);
 
   return scope;
 }
@@ -130,12 +122,8 @@ export function hasPendingRequestTasks(scope: RequestScope): boolean {
  * @param reason - Motivo opcional disponibilizado pelo `AbortSignal`.
  */
 export function abortRequestScope(scope: RequestScope, reason?: unknown): void {
-  let controller = abortControllers.get(scope);
-  if (!controller) {
-    controller = new AbortController();
-    abortControllers.set(scope, controller);
-  }
-  controller.abort(reason);
+  const controller = abortControllers.get(scope);
+  if (controller && !controller.signal.aborted) controller.abort(reason);
 }
 
 /**

@@ -15,9 +15,9 @@ type BackgroundJob = {
 
 /** Agenda tarefas assíncronas preservando o contexto da requisição. */
 export class BackgroundScheduler {
-  private concurrency = Number.POSITIVE_INFINITY;
+  private concurrency = 16;
 
-  private queueLimit = Number.POSITIVE_INFINITY;
+  private queueLimit = 64;
 
   private running = 0;
 
@@ -40,12 +40,9 @@ export class BackgroundScheduler {
       );
     }
 
-    const queueLimit = options.queueLimit ?? Number.POSITIVE_INFINITY;
+    const queueLimit = options.queueLimit ?? 64;
 
-    if (
-      queueLimit !== Number.POSITIVE_INFINITY &&
-      (!Number.isInteger(queueLimit) || queueLimit < 0)
-    ) {
+    if (!Number.isInteger(queueLimit) || queueLimit < 0) {
       throw new RangeError(
         "O limite da fila de background deve ser um inteiro não negativo.",
       );

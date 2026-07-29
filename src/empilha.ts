@@ -344,7 +344,9 @@ export class Empilha {
 
   healthCheck(
     name: string,
-    check: (() => boolean | Promise<boolean>) | PostgresQueryRunner,
+    check:
+      | ((signal?: AbortSignal) => boolean | Promise<boolean>)
+      | PostgresQueryRunner,
   ): this {
     this.healthChecks.add(name, check);
     if (this.controllersRegistered) this.healthChecks.registerRoute(this.http);

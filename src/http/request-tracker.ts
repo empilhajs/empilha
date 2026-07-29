@@ -3,9 +3,11 @@ import {
   waitForRequestTasks,
   type RequestScope,
 } from "../context";
+import { withTimeout } from "../utils/timeout";
 
 /** Controla concorrência, scopes ativos e drenagem durante o shutdown. */
 export class RequestTracker {
+  private readonly cleanupTimeoutMs = 30_000;
   private inFlight = 0;
   private readonly active = new Set<RequestScope>();
   private readonly cleanups = new Set<Promise<void>>();
@@ -26,7 +28,7 @@ export class RequestTracker {
   }
 
   leave(): void {
-    this.inFlight--;
+    if (this.inFlight > 0) this.inFlight--;
     this.resolveIdleWaitersIfIdle();
   }
 
@@ -43,7 +45,11 @@ export class RequestTracker {
       return;
     }
 
-    const cleanup = waitForRequestTasks(scope)
+    const cleanup = withTimeout(
+      waitForRequestTasks(scope),
+      this.cleanupTimeoutMs,
+      () => undefined,
+    )
       .then(() => scope.container.dispose())
       .catch((error) => {
         console.error("Falha ao encerrar o escopo da requisição.", error);
@@ -64,7 +70,8 @@ export class RequestTracker {
   }
 
   private finishScope(scope: RequestScope): void {
-    this.active.delete(scope);
+    if (!this.active.delete(scope)) return;
+    this.leave();
     this.resolveIdleWaitersIfIdle();
   }
 

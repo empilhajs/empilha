@@ -411,16 +411,13 @@ export class HttpAdapter {
 
       if (isPromise(response)) {
         return response.finally(() => {
-          this.requests.leave();
           this.requests.cleanupScope(scope);
         });
       }
 
-      this.requests.leave();
       this.requests.cleanupScope(scope);
       return response;
     } catch (error) {
-      this.requests.leave();
       this.requests.cleanupScope(scope);
       throw error;
     }
