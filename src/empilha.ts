@@ -204,15 +204,14 @@ export class Empilha {
     options: PostgresOptions = {},
   ): this {
     this.assertConfiguring("postgres()");
-    this.postgresExecutor.setRunner(
-      "end" in pool ? postgresRunner(pool as PostgresPool) : pool,
-    );
+    const runner = "end" in pool ? postgresRunner(pool as PostgresPool) : pool;
+    this.postgresExecutor.setRunner(runner);
 
     if (options.sql) loadSQL(options.sql, this.queries);
     if (options.timeout !== undefined)
       this.postgresExecutor.setTimeout(options.timeout);
     if (options.healthCheck !== false) {
-      this.healthCheck(options.healthCheck ?? "database", pool);
+      this.healthCheck(options.healthCheck ?? "database", runner);
     }
     if (
       options.close !== false &&
