@@ -35,8 +35,8 @@ console.log("API disponível em http://localhost:4000");
 ```
 
 ```sh
-curl http://localhost:4000/hello/Ana
-# {"message":"Olá, Ana!"}
+curl http://localhost:4000/hello/Ada
+# {"message":"Olá, Ada!"}
 ```
 
 Para iniciar um projeto com PostgreSQL, OpenAPI, health check e scripts de
@@ -91,44 +91,44 @@ class UsersController {
 ```
 
 `@Body(schema)` valida e injeta o JSON recebido. Veja o exemplo completo na
-[documentação de validação](https://empilhajs.github.io/empilha-docs/validation/).
+[documentação de validação](https://empilhajs.github.io/empilha-docs/validation).
 
 ## Recursos
 
-| Recurso                | Uso                                                     | Documentação                                                                     |
-| ---------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Rotas e parâmetros     | `@Get`, `@Post`, `@Param`, `@Query`                     | [Criar uma rota](https://empilhajs.github.io/empilha-docs/routes/)               |
-| Respostas e schemas    | `@Status`, `@Produces`, `@Returns`                      | [Definir respostas](https://empilhajs.github.io/empilha-docs/responses/)         |
-| Injeção de dependência | `@Injectable`, `@Inject`, `app.provide()`               | [Services e DI](https://empilhajs.github.io/empilha-docs/services/)              |
-| PostgreSQL             | `@Sql`, `@Transaction("read")`, `@Transaction("write")` | [Usar SQL em uma rota](https://empilhajs.github.io/empilha-docs/sql/)            |
-| Middleware e segurança | `app.use()`, `@Use`, `@Roles`                           | [Middleware e autorização](https://empilhajs.github.io/empilha-docs/middleware/) |
-| Erros                  | `HttpError`, `@Catch`, `app.catch()`                    | [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors/)          |
-| Operação               | limites, CORS, health, shutdown                         | [Configurações comuns](https://empilhajs.github.io/empilha-docs/configuration/)  |
+| Recurso                | Uso                                                     | Documentação                                                                    |
+| ---------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Rotas e parâmetros     | `@Get`, `@Post`, `@Param`, `@Query`                     | [Criar uma rota](https://empilhajs.github.io/empilha-docs/routes)               |
+| Respostas e schemas    | `@Status`, `@Produces`, `@Returns`                      | [Definir respostas](https://empilhajs.github.io/empilha-docs/responses)         |
+| Injeção de dependência | `@Injectable`, `@Inject`, `app.provide()`               | [Services e DI](https://empilhajs.github.io/empilha-docs/services)              |
+| PostgreSQL             | `@Sql`, `@Transaction("read")`, `@Transaction("write")` | [Usar SQL em uma rota](https://empilhajs.github.io/empilha-docs/sql)            |
+| Middleware e segurança | `app.use()`, `@Use`, `@Roles`                           | [Middleware e autorização](https://empilhajs.github.io/empilha-docs/middleware) |
+| Erros                  | `HttpError`, `@Catch`, `app.catch()`                    | [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors)          |
+| Operação               | limites, CORS, health, shutdown                         | [Configurações comuns](https://empilhajs.github.io/empilha-docs/configuration)  |
 
 ## Documentação
 
 ### Começar uma API
 
-- [Primeiros passos](https://empilhajs.github.io/empilha-docs/) — instale, crie uma rota e teste sem servidor.
-- [Controllers e rotas](https://empilhajs.github.io/empilha-docs/routes/) — path, query, headers, body, schemas e status.
-- [Organize o projeto](https://empilhajs.github.io/empilha-docs/project/) — estrutura de uma API Empilha pronta para crescer.
+- [Primeiros passos](https://empilhajs.github.io/empilha-docs) — instale, crie uma rota e teste sem servidor.
+- [Controllers e rotas](https://empilhajs.github.io/empilha-docs/routes) — path, query, headers, body, schemas e status.
+- [Organize o projeto](https://empilhajs.github.io/empilha-docs/project) — estrutura de uma API Empilha pronta para crescer.
 
 ### Construir recursos
 
-- [SQL nomeado](https://empilhajs.github.io/empilha-docs/sql/) — arquivos `.sql`, resultados e transações PostgreSQL.
-- [Bindings SQL](https://empilhajs.github.io/empilha-docs/sql-bindings/) — bindings de request, casts e validação dos parâmetros.
-- [JWT e autenticação](https://empilhajs.github.io/empilha-docs/authentication/) — Bearer token, `@Inject()`, `@Identity()` e roles.
-- [Injeção de dependência](https://empilhajs.github.io/empilha-docs/services/) — providers, mocks e escopos de requisição.
-- [Middleware e background](https://empilhajs.github.io/empilha-docs/middleware/) — políticas transversais, roles, health checks e jobs.
-- [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors/) — `HttpError`, `@Catch`, catcher global e falhas de validação.
-- [Contexto de requisição](https://empilhajs.github.io/empilha-docs/scopes/) — `AbortSignal`, `requestId`, tarefas e DI request-scoped.
+- [SQL nomeado](https://empilhajs.github.io/empilha-docs/sql) — arquivos `.sql`, resultados e transações PostgreSQL.
+- [Bindings SQL](https://empilhajs.github.io/empilha-docs/sql-bindings) — bindings de request, casts e validação dos parâmetros.
+- [JWT e autenticação](https://empilhajs.github.io/empilha-docs/authentication) — Bearer token, `@Inject()`, `@Identity()` e roles.
+- [Injeção de dependência](https://empilhajs.github.io/empilha-docs/services) — providers, mocks e escopos de requisição.
+- [Middleware e background](https://empilhajs.github.io/empilha-docs/middleware) — políticas transversais, roles, health checks e jobs.
+- [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors) — `HttpError`, `@Catch`, catcher global e falhas de validação.
+- [Contexto de requisição](https://empilhajs.github.io/empilha-docs/scopes) — `AbortSignal`, `requestId`, tarefas e DI request-scoped.
 
 ### Operar e entender
 
-- [Configuração](https://empilhajs.github.io/empilha-docs/configuration/) — CORS, limites, OpenAPI, banco, shutdown e observabilidade.
-- [OpenAPI](https://empilhajs.github.io/empilha-docs/openapi/) — contrato da API gerado a partir das rotas.
-- [Testes](https://empilhajs.github.io/empilha-docs/testing/) — `app.test()`, requests brutas e mocks de dependência.
-- [Ciclo de uma requisição](https://empilhajs.github.io/empilha-docs/execution-model/) — ordem do bootstrap e das etapas HTTP.
+- [Configuração](https://empilhajs.github.io/empilha-docs/configuration) — CORS, limites, OpenAPI, banco, shutdown e observabilidade.
+- [OpenAPI](https://empilhajs.github.io/empilha-docs/openapi) — contrato da API gerado a partir das rotas.
+- [Testes](https://empilhajs.github.io/empilha-docs/testing) — `app.test()`, requests brutas e mocks de dependência.
+- [Ciclo de uma requisição](https://empilhajs.github.io/empilha-docs/execution-model) — ordem do bootstrap e das etapas HTTP.
 
 ## Desenvolvimento do framework
 
