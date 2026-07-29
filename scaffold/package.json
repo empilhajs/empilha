@@ -1,7 +1,15 @@
 {
-  "name": "empilha-app",
-  "private": true,
+  "name": "create-empilha",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Gerador de projetos para o Empilha.",
+  "bin": {
+    "create-empilha": "bin/create-empilha.ts"
+  },
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "bun node_modules/empilha/scripts/dev.ts src/app.ts",
     "start": "bun src/app.ts",
