@@ -300,6 +300,7 @@ export class Empilha {
 
   /** Registra um recurso externo para ser encerrado por `app.close()`. */
   onClose(hook: CloseHook): this {
+    this.lifecycle.assertBeforeClosed("onClose()");
     this.closeHooks.push(hook);
     return this;
   }
@@ -317,9 +318,7 @@ export class Empilha {
   }
 
   onStart(hook: StartHook): this {
-    if (this.lifecycle.phase === "closed") {
-      throw new Error("onStart() não pode ser chamado após app.close().");
-    }
+    this.lifecycle.assertBeforeListening("onStart()");
     this.startHooks.push(hook);
     return this;
   }

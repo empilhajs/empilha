@@ -131,6 +131,17 @@ describe("Empilha lifecycle", () => {
     const port = 40_000 + Math.floor(Math.random() * 1_000);
     await app.listen(port);
     expect(started).toBe(true);
+    expect(() => app.onStart(() => {})).toThrow("antes de app.listen");
+
+    await app.close();
+  });
+
+  test("rejeita hook de fechamento depois que a aplicação encerra", async () => {
+    const app = new Empilha();
+
+    await app.close();
+
+    expect(() => app.onClose(() => {})).toThrow("após app.close");
   });
 
   test("atende uma requisição HTTP real e encerra o servidor", async () => {

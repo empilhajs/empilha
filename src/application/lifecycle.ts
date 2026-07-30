@@ -23,6 +23,24 @@ export class ApplicationLifecycle {
     }
   }
 
+  /** Hooks de início ainda fazem sentido até o servidor começar a escutar. */
+  assertBeforeListening(action: string): void {
+    if (
+      this.currentPhase !== "configuring" &&
+      this.currentPhase !== "validated" &&
+      this.currentPhase !== "initialized"
+    ) {
+      throw new Error(`${action} deve ser chamado antes de app.listen().`);
+    }
+  }
+
+  /** Hooks de fechamento só podem ser registrados antes do fechamento final. */
+  assertBeforeClosed(action: string): void {
+    if (this.currentPhase === "closed") {
+      throw new Error(`${action} não pode ser chamado após app.close().`);
+    }
+  }
+
   validate(operation: AsyncOperation): void {
     this.assertConfiguring("validate()");
     operation();
