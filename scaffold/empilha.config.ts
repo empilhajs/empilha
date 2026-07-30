@@ -7,6 +7,9 @@ export default defineConfig({
   http: {
     cors: process.env.CORS_ORIGIN || false,
   },
+  logging: {
+    requests: true,
+  },
   openapi: {
     title: "Empilha API",
     version: "1.0.0",

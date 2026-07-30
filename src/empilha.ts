@@ -1,4 +1,4 @@
-import { type MiddlewareFn, type ServerResponse } from "./http";
+import { requestLogger, type MiddlewareFn, type ServerResponse } from "./http";
 import {
   loadSQL,
   postgresRunner,
@@ -62,7 +62,7 @@ export type HttpOptions = {
 };
 
 export type RunOptions = {
-  port: number;
+  port?: number;
   signals?: boolean;
 };
 
@@ -79,6 +79,9 @@ export type EmpilhaRuntimeConfig = {
   onBackgroundError?: (error: unknown, route: unknown) => void | Promise<void>;
   validation?: {
     responses?: boolean;
+  };
+  logging?: {
+    requests?: boolean;
   };
 };
 
@@ -192,6 +195,7 @@ export class Empilha {
       this.onBackgroundError(config.onBackgroundError);
     if (config.validation?.responses !== undefined)
       this.validateResponseSchemas(config.validation.responses);
+    if (config.logging?.requests) this.use(requestLogger());
 
     return this;
   }
@@ -491,7 +495,7 @@ export class Empilha {
   /** Inicia a aplicação e registra shutdown gracioso para o caso comum. */
   async run(options?: RunOptions): Promise<void> {
     const resolvedOptions = options ?? this.configuredRunOptions;
-    if (!resolvedOptions) {
+    if (!resolvedOptions || resolvedOptions.port === undefined) {
       throw new Error(
         "Configure server.port ou passe { port } para app.run().",
       );

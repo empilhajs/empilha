@@ -44,6 +44,39 @@ describe("atalhos de experiência de desenvolvimento", () => {
     expect((await docs.json()).info.title).toBe("Configured API");
   });
 
+  test("habilita logging de requests pela configuração centralizada", async () => {
+    const entries: Array<{ method: string; status: number }> = [];
+    const originalInfo = console.info;
+    console.info = (value: unknown) => {
+      const entry = JSON.parse(String(value)) as {
+        method: string;
+        status: number;
+      };
+      entries.push(entry);
+    };
+
+    try {
+      @Controller("/configured-logs")
+      class Logged {
+        @Get("/")
+        get() {
+          return { ok: true };
+        }
+      }
+
+      const app = new Empilha()
+        .configure({ logging: { requests: true } })
+        .initialize([Logged]);
+
+      expect((await app.test().get("/configured-logs")).status).toBe(200);
+      expect(entries).toEqual([
+        expect.objectContaining({ method: "GET", status: 200 }),
+      ]);
+    } finally {
+      console.info = originalInfo;
+    }
+  });
+
   test("cria decorators de roles", () => {
     const roles = defineRoles("admin", "user");
     expect(roles.require("admin")).toBeTypeOf("function");

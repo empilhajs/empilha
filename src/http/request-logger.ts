@@ -20,7 +20,8 @@ function writeToConsole(entry: RequestLog): void {
 }
 
 /**
- * Cria um middleware que registra método, rota, status e duração da requisição.
+ * Cria um middleware que registra método, rota, status, duração e falhas da
+ * requisição sem incluir headers, body ou mensagens de erro sensíveis.
  *
  * @param write Função responsável por persistir ou enviar cada registro.
  * @returns Middleware pronto para `app.use()` ou `@Use()`.
@@ -36,18 +37,33 @@ export function requestLogger(
 ): MiddlewareFn {
   return async (request, next) => {
     const startedAt = performance.now();
-    const response = await next();
+    try {
+      const response = await next();
 
-    write({
-      level: response.status >= 400 ? "error" : "info",
-      requestId: requestContext().requestId,
-      method: request.method,
-      pathname: request.pathname,
-      status: response.status,
-      durationMs: Math.round(performance.now() - startedAt),
-      ...(response.status >= 400 ? { error: { status: response.status } } : {}),
-    });
+      write({
+        level: response.status >= 400 ? "error" : "info",
+        requestId: requestContext().requestId,
+        method: request.method,
+        pathname: request.pathname,
+        status: response.status,
+        durationMs: Math.round(performance.now() - startedAt),
+        ...(response.status >= 400
+          ? { error: { status: response.status } }
+          : {}),
+      });
 
-    return response;
+      return response;
+    } catch (error) {
+      write({
+        level: "error",
+        requestId: requestContext().requestId,
+        method: request.method,
+        pathname: request.pathname,
+        status: 500,
+        durationMs: Math.round(performance.now() - startedAt),
+        error: { status: 500 },
+      });
+      throw error;
+    }
   };
 }

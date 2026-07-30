@@ -15,7 +15,7 @@ const app = new Empilha()
       timeout: 5_000,
     }),
   )
-  .register([UserController])
+  .initialize([UserController])
 ```
 
 `timeout` configura `query_timeout` e `statement_timeout` no `pg`, além do

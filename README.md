@@ -59,6 +59,7 @@ bun run dev
 - Middleware global, de controller ou de rota; autenticação e autorização.
 - OpenAPI 3.1 e Swagger UI gerados das declarações de rota.
 - Timeouts cooperativos, shutdown ordenado, health checks e tarefas em segundo plano.
+- Logging estruturado com request ID, status e duração.
 - Cliente de teste que exercita a aplicação sem abrir uma porta HTTP.
 
 ## Exemplo: endpoint validado e documentado
