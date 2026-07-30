@@ -1,6 +1,6 @@
 {
   "name": "empilha",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": false,
   "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
   "keywords": [
