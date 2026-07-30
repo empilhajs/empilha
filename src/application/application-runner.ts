@@ -64,6 +64,6 @@ export class ApplicationRunner {
       console.log(`📄 OpenAPI: ${baseUrl}${this.options.openApiDocumentPath}`);
     }
     if (this.options.hasHealthChecks())
-      console.log(`❤️ Health: ${baseUrl}/health`);
+      console.log(`❤️ Health: ${baseUrl}/health/ready`);
   }
 }

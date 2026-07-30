@@ -37,6 +37,7 @@ import {
 import type { ControllerInstance } from "./compiler";
 import { invokeController } from "./utils/controller";
 import { ApplicationRunner } from "./application/application-runner";
+import type { HealthCheckOptions } from "./application/health-checks";
 
 export type {
   ManagedPostgresPool,
@@ -62,6 +63,8 @@ export type HttpOptions = {
   shutdownTimeout?: number | null;
 };
 
+export type { HealthCheckOptions } from "./application/health-checks";
+
 export type RunOptions = {
   port?: number;
   signals?: boolean;
@@ -70,6 +73,7 @@ export type RunOptions = {
 export type EmpilhaRuntimeConfig = {
   server?: RunOptions;
   http?: HttpOptions;
+  health?: HealthCheckOptions;
   openapi?: OpenApiOptions | false;
   middleware?: MiddlewareFn[];
   plugins?: EmpilhaPlugin[];
@@ -198,6 +202,7 @@ export class Empilha {
 
     if (config.server !== undefined) this.configuredRunOptions = config.server;
     if (config.http !== undefined) this.configureHttp(config.http);
+    if (config.health !== undefined) this.configureHealthChecks(config.health);
     if (config.openapi !== undefined && config.openapi !== false)
       this.openapi(config.openapi);
     for (const middleware of config.middleware ?? []) this.use(middleware);
@@ -260,6 +265,13 @@ export class Empilha {
     if (options.shutdownTimeout !== undefined)
       this.http.setShutdownTimeout(options.shutdownTimeout);
 
+    return this;
+  }
+
+  /** Configura a execução e a capacidade dos endpoints de health check. */
+  configureHealthChecks(options: HealthCheckOptions): this {
+    this.assertConfiguring("configureHealthChecks()");
+    this.healthChecks.configure(options);
     return this;
   }
 

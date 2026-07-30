@@ -54,7 +54,7 @@ describe("Empilha lifecycle", () => {
   });
 
   test("faz rollback das rotas se o health check conflitar no bootstrap", async () => {
-    @Controller("/health")
+    @Controller("/health/ready")
     class ConflictingHealthRoute {
       @Get("/")
       get() {
@@ -67,7 +67,7 @@ describe("Empilha lifecycle", () => {
       .healthCheck("ok", () => true);
 
     expect(() => app.initialize([ConflictingHealthRoute])).toThrow();
-    expect((await app.test().get("/health")).status).toBe(404);
+    expect((await app.test().get("/health/ready")).status).toBe(404);
     expect(() => app.initialize([ConflictingHealthRoute])).toThrow("bootstrap");
   });
 

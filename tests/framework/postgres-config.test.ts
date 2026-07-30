@@ -22,7 +22,7 @@ describe("configuração PostgreSQL", () => {
       .validate([])
       .initialize([]);
 
-    expect((await app.test().get("/health")).status).toBe(200);
+    expect((await app.test().get("/health/ready")).status).toBe(200);
     expect(argumentsReceived).toEqual([["SELECT 1", undefined]]);
     await app.close();
   });
@@ -46,8 +46,8 @@ describe("configuração PostgreSQL", () => {
       .validate([])
       .initialize([]);
 
-    expect((await app.test().get("/health")).status).toBe(200);
-    expect(await (await app.test().get("/health")).json()).toEqual({
+    expect((await app.test().get("/health/ready")).status).toBe(200);
+    expect(await (await app.test().get("/health/ready")).json()).toEqual({
       status: "ok",
       checks: { database: "up" },
     });

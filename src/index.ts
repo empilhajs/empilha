@@ -4,6 +4,7 @@ export {
   type ManagedPostgresPool,
   type PostgresOptions,
   type HttpOptions,
+  type HealthCheckOptions,
   type RunOptions,
   type EmpilhaRuntimeConfig,
   type PostgresPool,
