@@ -1,6 +1,6 @@
 {
   "name": "create-empilha",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Gerador de projetos para o Empilha.",
   "bin": {
@@ -20,7 +20,7 @@
     "generate:queries": "bun node_modules/empilha/scripts/generate-query-types.ts ./src/queries ./src/queries/query-names.ts queryNames"
   },
   "dependencies": {
-    "empilha": "^0.1.0",
+    "empilha": "^0.1.4",
     "pg": "^8.13.0"
   },
   "devDependencies": {
