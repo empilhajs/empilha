@@ -3,6 +3,7 @@ export {
   createRequestScope,
   hasPendingRequestTasks,
   requestContext,
+  releaseRequestScope,
   runWithRequestContext,
   waitForRequestTasks,
   type RequestScope,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Container, HttpAdapter } from "../../src";
+import { Container, HttpAdapter, requestContext } from "../../src";
 import { JsonBodyReader } from "../../src/http";
 import { request } from "../helpers/test-utils";
 
@@ -198,6 +198,60 @@ describe("HttpAdapter", () => {
 
     finish();
     await adapter.close();
+  });
+
+  test("propaga o abort do cliente para o request scope", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    const client = new AbortController();
+    const reason = new Error("client disconnected");
+    let receivedReason: unknown;
+
+    const handler = () =>
+      new Promise<{ status: number; body: string }>((resolve) => {
+        const scope = requestContext();
+        scope.signal.addEventListener(
+          "abort",
+          () => {
+            receivedReason = scope.signal.reason;
+            resolve({ status: 200, body: "cancelled" });
+          },
+          { once: true },
+        );
+      });
+    Object.assign(handler, { requiresRequestContext: true });
+    adapter.get("/disconnect", handler);
+
+    const response = Promise.resolve(
+      adapter.handleRequest(
+        new Request("http://test/disconnect", { signal: client.signal }),
+      ),
+    );
+    client.abort(reason);
+
+    expect((await response).status).toBe(200);
+    expect(receivedReason).toBe(reason);
+  });
+
+  test("remove o listener de abort quando o request scope termina", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    const client = new AbortController();
+    let signal: AbortSignal | undefined;
+
+    const handler = () => {
+      signal = requestContext().signal;
+      return { status: 200, body: "ok" };
+    };
+    Object.assign(handler, { requiresRequestContext: true });
+    adapter.get("/complete", handler);
+
+    await adapter.handleRequest(
+      new Request("http://test/complete", { signal: client.signal }),
+    );
+    client.abort(new Error("late client disconnect"));
+
+    expect(signal?.aborted).toBe(false);
   });
 
   test("reverte o contador quando a factory do scope falha", async () => {

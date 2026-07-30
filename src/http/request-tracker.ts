@@ -1,5 +1,6 @@
 import {
   hasPendingRequestTasks,
+  releaseRequestScope,
   waitForRequestTasks,
   type RequestScope,
 } from "../context";
@@ -72,6 +73,7 @@ export class RequestTracker {
 
   private finishScope(scope: RequestScope): void {
     if (!this.active.delete(scope)) return;
+    releaseRequestScope(scope);
     this.leave();
     this.resolveIdleWaitersIfIdle();
   }

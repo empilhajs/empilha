@@ -24,6 +24,7 @@ export type RequestScope<TUser = unknown> = {
 const storage = new AsyncLocalStorage<RequestScope>();
 const pendingTasks = new WeakMap<RequestScope, Set<Promise<unknown>>>();
 const abortControllers = new WeakMap<RequestScope, AbortController>();
+const requestAbortListeners = new WeakMap<RequestScope, () => void>();
 
 /**
  * Cria um escopo com container, cancelamento e tarefas pendentes.
@@ -64,8 +65,30 @@ export function createRequestScope(
   };
 
   abortControllers.set(scope, abortController);
+  const abortFromRequest = () =>
+    abortRequestScope(scope, request.signal.reason);
+  requestAbortListeners.set(scope, abortFromRequest);
+
+  if (request.signal.aborted) abortFromRequest();
+  else
+    request.signal.addEventListener("abort", abortFromRequest, { once: true });
 
   return scope;
+}
+
+/**
+ * Libera recursos associados ao ciclo de vida do scope.
+ *
+ * O listener do `Request.signal` precisa ser removido mesmo quando a requisição
+ * conclui normalmente: o objeto `Request` pode continuar referenciado pelo
+ * runtime enquanto sua conexão é reutilizada.
+ */
+export function releaseRequestScope(scope: RequestScope): void {
+  const abortFromRequest = requestAbortListeners.get(scope);
+  if (!abortFromRequest) return;
+
+  scope.request.signal.removeEventListener("abort", abortFromRequest);
+  requestAbortListeners.delete(scope);
 }
 
 /**
