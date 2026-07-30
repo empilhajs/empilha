@@ -15,7 +15,10 @@ export type TestPostgresOptions<T> = {
   ) => QueryResult | undefined | Promise<QueryResult | undefined>;
 };
 
-/** Cria um runner PostgreSQL em memória para testes de rotas SQL. */
+/**
+ * Cria um runner PostgreSQL em memória para testes de rotas SQL.
+ * Fixtures são indexadas pelo SQL compilado completo.
+ */
 export function testPostgres<T>(
   input: T[] | TestPostgresOptions<T>,
 ): TestPostgres {
@@ -25,15 +28,16 @@ export function testPostgres<T>(
   const query = async (
     sql: string,
     queryParams?: unknown[],
+    queryOptions?: { queryName?: string },
   ): Promise<QueryResult> => {
     queries.push(sql);
     params.push(queryParams ?? []);
     return (
       (await options.onQuery?.(sql, queryParams ?? [])) ?? {
         rows:
-          Object.entries(options.fixtures ?? {}).find(([match]) =>
-            sql.includes(match),
-          )?.[1] ?? options.rows,
+          options.fixtures?.[queryOptions?.queryName ?? ""] ??
+          options.fixtures?.[sql] ??
+          options.rows,
       }
     );
   };

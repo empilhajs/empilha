@@ -159,11 +159,13 @@ export class RouteHandlerBuilder {
             compiledSql.sql,
             params,
             requestContext().signal,
+            route.queryName,
           )
         : this.postgres.execute(
             compiledSql.sql,
             params,
             requestContext().signal,
+            route.queryName,
           );
     };
   }

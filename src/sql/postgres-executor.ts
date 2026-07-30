@@ -10,6 +10,8 @@ export type QueryResult = {
 /** Sinal de cancelamento repassado ao cliente PostgreSQL. */
 export type QueryExecutionOptions = {
   signal?: AbortSignal;
+  /** Nome lógico da query, usado por runners de teste. */
+  queryName?: string;
 };
 
 /** Cliente conectado usado para executar transações. */
@@ -121,6 +123,7 @@ export class PostgresExecutor {
     sql: string,
     params: unknown[],
     signal?: AbortSignal,
+    queryName?: string,
   ): Promise<QueryResult> {
     if (!this.runner) {
       throw new Error("Nenhum query runner configurado.");
@@ -128,7 +131,10 @@ export class PostgresExecutor {
 
     return this.runOperation(
       (options) =>
-        (this.runner as PostgresQueryRunner).query(sql, params, options),
+        (this.runner as PostgresQueryRunner).query(sql, params, {
+          ...options,
+          queryName,
+        }),
       signal,
     );
   }
@@ -142,9 +148,14 @@ export class PostgresExecutor {
     sql: string,
     params: unknown[],
     signal?: AbortSignal,
+    queryName?: string,
   ): Promise<QueryResult> {
     return this.runOperation(
-      (options) => client.query(sql, params, options),
+      (options) =>
+        client.query(sql, params, {
+          ...options,
+          queryName,
+        }),
       signal,
     );
   }

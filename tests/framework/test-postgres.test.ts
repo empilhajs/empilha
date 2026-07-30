@@ -30,12 +30,12 @@ describe("testPostgres", () => {
     });
   });
 
-  test("seleciona fixtures por trecho da query", async () => {
+  test("seleciona fixtures pelo SQL completo", async () => {
     const database = testPostgres({
       rows: [],
       fixtures: {
-        "FROM users": [{ id: 1 }],
-        "FROM tasks": [{ id: 2 }],
+        "SELECT * FROM users": [{ id: 1 }],
+        "SELECT * FROM tasks": [{ id: 2 }],
       },
     });
 
@@ -45,5 +45,20 @@ describe("testPostgres", () => {
     expect(await database.query("SELECT * FROM tasks")).toEqual({
       rows: [{ id: 2 }],
     });
+  });
+
+  test("seleciona fixtures pelo nome lógico da query", async () => {
+    const database = testPostgres({
+      rows: [],
+      fixtures: {
+        findUser: [{ id: 1 }],
+      },
+    });
+
+    expect(
+      await database.query("SELECT id FROM users", [], {
+        queryName: "findUser",
+      }),
+    ).toEqual({ rows: [{ id: 1 }] });
   });
 });
