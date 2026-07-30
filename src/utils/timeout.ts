@@ -1,4 +1,11 @@
-/** Aguarda uma operação até o prazo informado, executando o fallback no vencimento. */
+/**
+ * Aguarda uma operação até o prazo informado, executando o fallback no
+ * vencimento.
+ *
+ * O timeout não consegue cancelar uma Promise arbitrária. Os chamadores que
+ * controlam recursos canceláveis devem abortá-los dentro de `onTimeout`.
+ * A Promise original continua sendo observada para evitar rejeições órfãs.
+ */
 export function withTimeout<T>(
   operation: PromiseLike<T>,
   milliseconds: number,

@@ -36,6 +36,7 @@ import {
 } from "./application/framework-shutdown";
 import type { ControllerInstance } from "./compiler";
 import { invokeController } from "./utils/controller";
+import { ApplicationRunner } from "./application/application-runner";
 
 export type {
   ManagedPostgresPool,
@@ -135,6 +136,8 @@ export class Empilha {
 
   private controllersRegistered = false;
 
+  private readonly runner: ApplicationRunner;
+
   private validatedControllers: readonly ControllerConstructor[] | undefined;
 
   private readonly openApiDocument = this.context.openApi;
@@ -167,6 +170,18 @@ export class Empilha {
     });
     this.http.setRequestScopeFactory(() => this.container.createScope());
     this.http.setErrorHandler((error) => this.handleAdapterError(error));
+    this.runner = new ApplicationRunner({
+      lifecycle: this.lifecycle,
+      isInitialized: () => this.controllersRegistered,
+      listen: (port) => this.http.listen(port),
+      close: () => this.close(),
+      startHooks: this.startHooks,
+      hasOpenApi: () => this.openApiRoutesRegistered,
+      hasHealthChecks: () => this.healthChecks.hasChecks,
+      getUrl: () => this.http.url,
+      openApiUiPath: OPENAPI_UI_PATH,
+      openApiDocumentPath: OPENAPI_DOCUMENT_PATH,
+    });
   }
 
   private assertConfiguring(action: string): void {
@@ -481,48 +496,16 @@ export class Empilha {
   }
 
   async listen(port: number): Promise<void> {
-    if (!this.controllersRegistered) {
-      throw new Error("Chame app.initialize([...]) antes de app.listen().");
-    }
-
-    await this.lifecycle.listen(
-      () => this.http.listen(port),
-      this.startHooks,
-      () => this.close(),
-    );
+    await this.runner.listen(port);
   }
 
   /** Inicia a aplicação e registra shutdown gracioso para o caso comum. */
   async run(options?: RunOptions): Promise<void> {
     const resolvedOptions = options ?? this.configuredRunOptions;
-    if (!resolvedOptions || resolvedOptions.port === undefined) {
-      throw new Error(
-        "Configure server.port ou passe { port } para app.run().",
-      );
-    }
-
-    await this.listen(resolvedOptions.port);
-
-    if (resolvedOptions.signals !== false) {
-      let shutdownPromise: Promise<void> | undefined;
-      const shutdown = () => {
-        shutdownPromise ??= this.close().catch((error: unknown) => {
-          console.error("Falha ao encerrar a aplicação:", error);
-          process.exitCode = 1;
-        });
-      };
-      process.once("SIGINT", shutdown);
-      process.once("SIGTERM", shutdown);
-    }
-
-    const baseUrl = `http://localhost:${resolvedOptions.port}`;
-    console.log(`🚀 API: ${baseUrl}`);
-    if (this.openApiRoutesRegistered) {
-      console.log(`📚 Docs: ${baseUrl}${OPENAPI_UI_PATH}`);
-      console.log(`📄 OpenAPI: ${baseUrl}${OPENAPI_DOCUMENT_PATH}`);
-    }
-    if (this.healthChecks.hasChecks)
-      console.log(`❤️ Health: ${baseUrl}/health`);
+    await this.runner.run({
+      port: resolvedOptions?.port,
+      signals: resolvedOptions?.signals,
+    });
   }
 
   async close(): Promise<void> {

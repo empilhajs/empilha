@@ -179,6 +179,27 @@ describe("HttpAdapter", () => {
     await adapter.close();
   });
 
+  test("timeout do handler preserva o scope até a Promise original terminar", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(5);
+    adapter.setShutdownTimeout(20);
+    let finish!: () => void;
+    const original = new Promise<Response>((resolve) => {
+      finish = () => resolve(new Response("late"));
+    });
+    adapter.get("/never", () => original);
+
+    const response = await adapter.handleRequest(request("/never"));
+    expect(response.status).toBe(504);
+
+    const started = performance.now();
+    await expect(adapter.close()).rejects.toThrow("Timeout ao drenar");
+    expect(performance.now() - started).toBeLessThan(100);
+
+    finish();
+    await adapter.close();
+  });
+
   test("reverte o contador quando a factory do scope falha", async () => {
     const adapter = new HttpAdapter();
     adapter.setRequestScopeFactory(() => {

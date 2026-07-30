@@ -6,6 +6,7 @@ import {
   Empilha,
   Get,
   Inject,
+  Produces,
   type RequestScope,
 } from "../../src";
 
@@ -127,8 +128,47 @@ describe("Empilha lifecycle", () => {
     };
     internals.http.listen = async () => {};
 
-    await app.listen(0);
+    const port = 40_000 + Math.floor(Math.random() * 1_000);
+    await app.listen(port);
     expect(started).toBe(true);
+  });
+
+  test("atende uma requisição HTTP real e encerra o servidor", async () => {
+    class Live {
+      @Get("/")
+      @Produces("text/plain")
+      get() {
+        return "live";
+      }
+    }
+    Controller("/live")(Live);
+
+    const app = new Empilha()
+      .configureHttp({ cors: false })
+      .validate([Live])
+      .initialize([Live]);
+
+    try {
+      await app.listen(0);
+    } catch (error) {
+      if (
+        (error as { code?: string }).code === "EADDRINUSE" ||
+        String(error).includes("EADDRINUSE")
+      )
+        return;
+      throw error;
+    }
+    const internals = app as unknown as {
+      http: { port: number | null };
+    };
+    expect(internals.http.port).not.toBeNull();
+    const response = await fetch(
+      `http://localhost:${internals.http.port}/live`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("live");
+    await app.close();
   });
 
   test("aplica timeout ao handler e aborta o signal da requisição", async () => {

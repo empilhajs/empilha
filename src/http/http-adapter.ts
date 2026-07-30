@@ -33,6 +33,8 @@ import {
 } from "./request-parsing";
 import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
+import { logFrameworkError } from "../utils/logger";
+import { HttpServer } from "./http-server";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -62,23 +64,22 @@ export class HttpAdapter {
 
   private readonly middlewares: MiddlewareFn[] = [];
 
-  private server: ReturnType<typeof Bun.serve> | null = null;
-
   private readonly responses = new HttpResponseWriter();
 
   private readonly bodyReader = new JsonBodyReader();
 
-  // Timeouts são opcionais para que rotas stateless permaneçam no caminho
-  // rápido. Rotas que precisam de cancelamento devem configurar um timeout.
   private handlerTimeoutMs: number | null = 30_000;
-
-  private shutdownTimeoutMs: number | null = 15_000;
 
   private requestConcurrency: number | null = null;
 
   private requestScopeFactory: (() => Container) | undefined;
 
   private readonly requests = new RequestTracker();
+
+  private readonly server = new HttpServer(
+    (request) => this.handleRequest(request),
+    this.requests,
+  );
 
   private errorHandler: ErrorHandler = async () => ({
     status: 500,
@@ -149,7 +150,7 @@ export class HttpAdapter {
 
   /** Define o prazo máximo para drenar requisições no shutdown. */
   setShutdownTimeout(milliseconds: number | null): void {
-    this.shutdownTimeoutMs = validateTimeout(milliseconds, "shutdown");
+    this.server.setShutdownTimeout(milliseconds);
   }
 
   /** Limita requisições simultâneas ou remove o limite com `null`. */
@@ -163,6 +164,16 @@ export class HttpAdapter {
     this.requestConcurrency = limit;
   }
 
+  /** URL do servidor Bun enquanto ele estiver escutando. */
+  get url(): URL | null {
+    return this.server.url;
+  }
+
+  /** Porta efetiva do servidor Bun enquanto ele estiver escutando. */
+  get port(): number | null {
+    return this.server.port;
+  }
+
   // -------------------------------------------------------------------------
   // Dispatch e tratamento de erros
   // -------------------------------------------------------------------------
@@ -173,18 +184,31 @@ export class HttpAdapter {
     }
 
     const scope = requestContext();
+    // A resposta de timeout pode ser devolvida antes do handler terminar,
+    // mas o scope precisa permanecer vivo até a Promise original concluir.
+    // Caso contrário, dependências request-scoped podem ser descartadas em
+    // meio à execução do handler.
     scope.waitUntil(response);
 
     return withTimeout(response, this.handlerTimeoutMs, () => {
       abortRequestScope(scope, new Error("Handler timeout"));
       return this.responses.error(504, "Handler timeout");
-    }).catch(() => this.responses.error(500, "Internal server error"));
+    }).catch((error) => {
+      logFrameworkError("Falha ao produzir resposta HTTP.", error);
+      return this.responses.error(500, "Internal server error");
+    });
   }
 
   private handleDispatchError(error: unknown): Promise<Response> {
     return this.errorHandler(error)
       .then((response) => this.responses.write(response))
-      .catch(() => this.responses.error(500, "Internal server error"));
+      .catch((handlerError) => {
+        logFrameworkError("O error handler HTTP falhou.", {
+          cause: error,
+          handlerError,
+        });
+        return this.responses.error(500, "Internal server error");
+      });
   }
 
   private dispatchHandler(
@@ -281,9 +305,7 @@ export class HttpAdapter {
           return this.responses.error(error.status, error.message);
         }
 
-        return this.errorHandler(error)
-          .then((response) => this.responses.write(response))
-          .catch(() => this.responses.error(500, "Internal server error"));
+        return this.handleDispatchError(error);
       });
   }
 
@@ -593,18 +615,7 @@ export class HttpAdapter {
    * @throws {RangeError} Quando a porta é inválida.
    */
   async listen(port: number): Promise<void> {
-    if (this.server) {
-      throw new Error("O servidor já está em execução.");
-    }
-
-    if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-      throw new RangeError(`Porta inválida: ${port}.`);
-    }
-
-    this.server = Bun.serve({
-      port,
-      fetch: (request: Request) => this.handleRequest(request),
-    });
+    await this.server.listen(port);
   }
 
   /**
@@ -617,50 +628,11 @@ export class HttpAdapter {
    * @throws {Error} Quando o prazo configurado é excedido.
    */
   async close(): Promise<void> {
-    let server: ReturnType<typeof Bun.serve> | null = null;
+    await this.server.close();
+  }
 
-    if (this.server) {
-      server = this.server;
-      this.server = null;
-    }
-
-    const drain = Promise.all([
-      server ? Promise.resolve(server.stop(false)) : Promise.resolve(),
-      this.requests.waitForIdle(),
-    ]).then(() => undefined);
-
-    if (this.shutdownTimeoutMs === null) {
-      await drain;
-      return;
-    }
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      await Promise.race([
-        drain,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(
-              new Error("Timeout ao drenar requisições durante o shutdown."),
-            );
-          }, this.shutdownTimeoutMs as number);
-        }),
-      ]);
-    } catch (error) {
-      for (const scope of this.requests.activeScopes) {
-        abortRequestScope(scope, error);
-      }
-
-      if (server) {
-        await server.stop(true);
-      }
-
-      throw error;
-    } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-    }
+  /** Aguarda o término de todas as requisições e tarefas rastreadas. */
+  waitForIdle(): Promise<void> {
+    return this.server.waitForIdle();
   }
 }

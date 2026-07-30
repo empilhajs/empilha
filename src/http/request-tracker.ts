@@ -4,6 +4,7 @@ import {
   type RequestScope,
 } from "../context";
 import { withTimeout } from "../utils/timeout";
+import { logFrameworkError } from "../utils/logger";
 
 /** Controla concorrência, scopes ativos e drenagem durante o shutdown. */
 export class RequestTracker {
@@ -52,7 +53,7 @@ export class RequestTracker {
     )
       .then(() => scope.container.dispose())
       .catch((error) => {
-        console.error("Falha ao encerrar o escopo da requisição.", error);
+        logFrameworkError("Falha ao encerrar o escopo da requisição.", error);
       })
       .finally(() => {
         this.cleanups.delete(cleanup);

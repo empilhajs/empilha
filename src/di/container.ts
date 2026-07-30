@@ -123,6 +123,7 @@ type LocatedProvider = {
 };
 
 type OwnedInstance = {
+  token: DependencyToken;
   value: unknown;
   onDispose?: (value: unknown) => void | Promise<void>;
 };
@@ -185,6 +186,23 @@ export class Container {
       throw new TypeError(
         "Um provider deve definir exatamente uma implementação.",
       );
+    }
+
+    const existingProvider = this.providers.get(token);
+    const existingInstance = this.instances.get(token);
+    const existingOwned = this.ownedInstances.find(
+      (instance) =>
+        instance.token === token && instance.value === existingInstance,
+    );
+    if (existingOwned?.onDispose) {
+      throw new Error(
+        `O provider "${String(token)}" já foi resolvido e possui disposal; ` +
+          "não pode ser substituído com segurança.",
+      );
+    }
+
+    if (existingProvider && existingInstance !== undefined) {
+      this.instances.delete(token);
     }
 
     this.providers.set(token, {
@@ -328,6 +346,7 @@ export class Container {
     if (provider.scope !== "transient")
       instanceOwner.instances.set(token, value);
     instanceOwner.ownedInstances.push({
+      token,
       value,
       onDispose: provider.onDispose as
         | ((value: unknown) => void | Promise<void>)

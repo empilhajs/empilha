@@ -24,7 +24,6 @@
   "files": [
     "dist",
     "scripts",
-    "docs",
     "README.md"
   ],
   "type": "module",
@@ -77,7 +76,8 @@
   "scripts": {
     "build": "bun build src/index.ts src/application/index.ts src/context/index.ts src/decorators/index.ts src/di/index.ts src/errors/index.ts src/http/index.ts src/openapi/index.ts src/schema/index.ts src/sql/index.ts --outdir dist --target bun --format esm --external @sinclair/typebox --root src && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
-    "check": "bun run check:code && bun run check:tests && bun run check:packages && bun run build",
+    "check": "bun run check:code && bun run check:tests && bun run check:packages && bun run build && bun run check:package",
+    "check:package": "bun scripts/verify-package.ts",
     "check:packages": "bun run --cwd packages/jwt check && bun run --cwd packages/pg check && bun run --cwd scaffold check",
     "check:code": "bun run typecheck && bun run format:check && bun run lint",
     "check:tests": "bun run test",

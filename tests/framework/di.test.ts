@@ -118,6 +118,22 @@ describe("dependency injection", () => {
     expect(firstScope.resolve(Service)).not.toBe(secondScope.resolve(Service));
   });
 
+  test("rejeita substituir singleton resolvido que possui disposal", () => {
+    class Resource {}
+    const container = new Container().provide(Resource, {
+      useClass: Resource,
+      onDispose: () => {},
+    });
+
+    container.resolve(Resource);
+
+    expect(() =>
+      container.provide(Resource, {
+        useClass: Resource,
+      }),
+    ).toThrow("possui disposal");
+  });
+
   test("reutiliza singleton do container raiz em todos os request scopes", () => {
     class SingletonService {}
 
