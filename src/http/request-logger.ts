@@ -1,7 +1,9 @@
 import type { MiddlewareFn } from "./http-adapter";
+import { requestContext } from "../context";
 
 export type RequestLog = {
   level: "info" | "error";
+  requestId: string;
   method: string;
   pathname: string;
   status: number;
@@ -38,6 +40,7 @@ export function requestLogger(
 
     write({
       level: response.status >= 400 ? "error" : "info",
+      requestId: requestContext().requestId,
       method: request.method,
       pathname: request.pathname,
       status: response.status,

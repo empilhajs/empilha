@@ -16,6 +16,7 @@ describe("Empilha scoped middleware", () => {
       pathname: string;
       status: number;
       durationMs: number;
+      requestId: string;
     }> = [];
 
     @Controller("/logged")
@@ -41,6 +42,7 @@ describe("Empilha scoped middleware", () => {
       }),
     ]);
     expect(entries[0].durationMs).toBeGreaterThanOrEqual(0);
+    expect(entries[0].requestId).toBeString();
   });
 
   test("executa global, controller e rota na ordem declarada", async () => {
