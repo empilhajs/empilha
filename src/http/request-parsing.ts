@@ -69,6 +69,26 @@ function decodeQueryComponent(value: string): string {
   return decodeURIComponent(value.replace(/\+/g, " "));
 }
 
+function appendQueryValue(
+  query: Record<string, unknown>,
+  key: string,
+  value: string,
+): void {
+  const previous = query[key];
+
+  if (previous === undefined) {
+    query[key] = value;
+    return;
+  }
+
+  if (Array.isArray(previous)) {
+    previous.push(value);
+    return;
+  }
+
+  query[key] = [previous, value];
+}
+
 /**
  * Converte a query string em um mapa de valores decodificados.
  *
@@ -76,20 +96,22 @@ function decodeQueryComponent(value: string): string {
  * espaço, seguindo o formato tradicional de query string.
  *
  * @param raw - URL original da requisição.
+ * Valores repetidos são preservados como arrays.
+ *
  * @returns Registro com chaves e valores decodificados.
  * @throws {URIError} Quando uma chave ou valor possui encoding inválido.
  */
 export function parseRequestQuery(
   raw: string,
   knownQueryStart?: number,
-): Record<string, string> {
+): Record<string, unknown> {
   const queryStart = knownQueryStart ?? findUrlParts(raw)[1];
 
   if (queryStart === -1) {
     return EMPTY_STRING_RECORD;
   }
 
-  const query = createStringRecord();
+  const query = Object.create(null) as Record<string, unknown>;
   const fragmentStart = raw.indexOf("#", queryStart + 1);
   const queryEnd = fragmentStart === -1 ? raw.length : fragmentStart;
   const queryString = raw.slice(queryStart + 1, queryEnd);
@@ -108,7 +130,9 @@ export function parseRequestQuery(
     const rawKey = equalsIndex === -1 ? part : part.slice(0, equalsIndex);
     const rawValue = equalsIndex === -1 ? "" : part.slice(equalsIndex + 1);
 
-    query[decodeQueryComponent(rawKey)] = decodeQueryComponent(rawValue);
+    const key = decodeQueryComponent(rawKey);
+    const value = decodeQueryComponent(rawValue);
+    appendQueryValue(query, key, value);
   }
 
   return query;

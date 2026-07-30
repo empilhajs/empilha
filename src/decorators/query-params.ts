@@ -6,6 +6,9 @@ function convertQueryValue(
   value: unknown,
   schema: Record<string, unknown>,
 ): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => convertQueryValue(item, schema));
+  }
   if (typeof value !== "string") return value;
   if (schema.type === "integer" || schema.type === "number")
     return Number(value);

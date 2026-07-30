@@ -7,7 +7,7 @@ describe("request query parsing", () => {
       ["/?name=ana", { name: "ana" }],
       ["/?name=", { name: "" }],
       ["/?name", { name: "" }],
-      ["/?name=ana&name=joao", { name: "joao" }],
+      ["/?name=ana&name=joao", { name: ["ana", "joao"] }],
       ["/?other=1&name=ana", { other: "1", name: "ana" }],
       ["/?name=ana&other=1", { name: "ana", other: "1" }],
       ["/?name=hello+world", { name: "hello world" }],
@@ -20,6 +20,12 @@ describe("request query parsing", () => {
     for (const [url, expected] of cases) {
       expect(parseRequestQuery(`http://test${url}`)).toEqual(expected);
     }
+  });
+
+  test("preserva parâmetros repetidos como arrays", () => {
+    expect(parseRequestQuery("http://test/items?ids=1&ids=2")).toEqual({
+      ids: ["1", "2"],
+    });
   });
 
   test("rejeita percent encoding inválido", () => {

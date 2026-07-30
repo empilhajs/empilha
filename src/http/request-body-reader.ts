@@ -69,6 +69,14 @@ export class JsonBodyReader {
       return undefined;
     }
 
+    const contentType = request.headers.get("content-type");
+    if (
+      contentType !== null &&
+      !/^application\/json(?:\s*;|\s*$)/i.test(contentType)
+    ) {
+      throw new RequestBodyError(415, "Unsupported media type");
+    }
+
     const reader = request.body.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;

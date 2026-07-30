@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Container, HttpAdapter } from "../../src";
+import { JsonBodyReader } from "../../src/http";
 import { request } from "../helpers/test-utils";
 
 describe("HttpAdapter", () => {
@@ -330,6 +331,19 @@ describe("HttpAdapter", () => {
     );
 
     expect(streamedBodyResponse.status).toBe(413);
+  });
+
+  test("rejeita body com Content-Type incompatível", async () => {
+    const reader = new JsonBodyReader();
+    await expect(
+      reader.read(
+        new Request("http://test/body", {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body: "{}",
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 415 });
   });
 
   test("aplica o limite ao body real mesmo com Content-Length incorreto", async () => {
