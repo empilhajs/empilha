@@ -122,7 +122,9 @@ describe("Empilha OpenAPI", () => {
 
     expect(docs.status).toBe(200);
     expect(docs.headers.get("content-type")).toContain("text/html");
-    expect(await docs.text()).toContain("/openapi.json");
+    const docsHtml = await docs.text();
+    expect(docsHtml).toContain("/openapi.json");
+    expect(docsHtml).toContain("swagger-ui-bundle.js");
   });
 
   test("pode ser ativado depois do registro", async () => {

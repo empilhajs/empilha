@@ -191,14 +191,18 @@ function responseForRoute(route: RegisteredRouteMetadata): OpenApiResponse {
 
   const mediaType = route.contentType ?? "application/json";
 
+  if (!route.responseSchema) {
+    return {
+      description: "Successful response",
+    };
+  }
+
   return {
     description: "Successful response",
     content: {
-      [mediaType]: route.responseSchema
-        ? {
-            schema: route.responseSchema,
-          }
-        : {},
+      [mediaType]: {
+        schema: route.responseSchema,
+      },
     },
   };
 }
@@ -368,22 +372,21 @@ export function openApiHtml(): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>API Documentation</title>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self';">
-    <style>body { font-family: system-ui, sans-serif; margin: 2rem; } pre { white-space: pre-wrap; }</style>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self';">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui.css">
   </head>
   <body>
     <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-standalone-preset.js"></script>
     <script>
-      fetch("${OPENAPI_DOCUMENT_PATH}")
-        .then(response => response.ok ? response.json() : Promise.reject(response.status))
-        .then(openApiDocument => {
-          const output = document.createElement("pre");
-          output.textContent = JSON.stringify(openApiDocument, null, 2);
-          document.getElementById("swagger-ui").replaceChildren(output);
-        })
-        .catch(() => {
-          document.getElementById("swagger-ui").textContent = "Unable to load OpenAPI document.";
-        });
+      window.onload = () => SwaggerUIBundle({
+        url: "${OPENAPI_DOCUMENT_PATH}",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: "StandaloneLayout"
+      });
     </script>
   </body>
 </html>`;
