@@ -86,7 +86,7 @@
     "format": "oxfmt src tests scripts scaffold docs README.md package.json tsconfig.json tsconfig.build.json .oxfmtrc.json .oxlintrc.json",
     "format:check": "bun run format --check",
     "lint": "oxlint src tests scripts scaffold --deny-warnings",
-    "test": "bun test tests/compiler tests/framework tests/http tests/router tests/runtime tests/sql",
+    "test": "bun test tests/compiler tests/framework tests/http tests/router tests/runtime tests/scripts tests/sql",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
