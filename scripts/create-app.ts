@@ -39,12 +39,14 @@ fs.cpSync(templateRoot, targetRoot, {
 
 const packageFile = path.join(targetRoot, "package.json");
 const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
+const frameworkPackage = JSON.parse(
+  fs.readFileSync(path.join(frameworkRoot, "package.json"), "utf8"),
+) as { version: string };
 packageJson.name = path.basename(targetRoot);
 packageJson.private = true;
 delete packageJson.bin;
 delete packageJson.publishConfig;
-packageJson.dependencies["empilha"] =
-  `file:${path.relative(targetRoot, frameworkRoot).replaceAll(path.sep, "/") || "."}`;
+packageJson.dependencies["empilha"] = `^${frameworkPackage.version}`;
 fs.writeFileSync(packageFile, `${JSON.stringify(packageJson, null, 2)}\n`);
 
 console.log(`Projeto criado em ${targetRoot}`);
