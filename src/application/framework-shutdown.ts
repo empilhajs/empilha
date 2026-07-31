@@ -1,6 +1,7 @@
 import type { Container } from "../di";
 import type { HttpAdapter } from "../http";
 import { logFrameworkError } from "../utils/logger";
+import { withTimeout } from "../utils/timeout";
 
 export type CloseHook = () => void | Promise<void>;
 
@@ -37,14 +38,21 @@ function getCleanupPromise(
   container: Container,
   hooks: readonly CloseHook[],
   waitForIdle: boolean,
+  disposalTimeoutMs: number | null,
 ): Promise<void> {
   const existing = cleanupPromises.get(container);
   if (existing) return existing;
 
-  const cleanup = (async () => {
+  const dispose = (async () => {
     if (waitForIdle) await http.waitForIdle();
     await disposeResources(container, hooks);
   })();
+  const cleanup =
+    disposalTimeoutMs === null
+      ? dispose
+      : withTimeout(dispose, disposalTimeoutMs, () => {
+          throw new Error("Timeout ao descartar recursos da aplicação.");
+        });
   cleanupPromises.set(container, cleanup);
   return cleanup;
 }
@@ -53,6 +61,7 @@ export async function closeEmpilhaResources(
   http: HttpAdapter,
   container: Container,
   hooks: readonly CloseHook[],
+  disposalTimeoutMs: number | null,
 ): Promise<void> {
   try {
     await http.close();
@@ -60,7 +69,13 @@ export async function closeEmpilhaResources(
     // O container não pode ser encerrado enquanto handlers ainda usam seus
     // singletons. O cleanup fica agendado para quando o adapter ficar idle,
     // evitando vazamento caso o chamador não consiga fazer retry imediatamente.
-    const cleanup = getCleanupPromise(http, container, hooks, true);
+    const cleanup = getCleanupPromise(
+      http,
+      container,
+      hooks,
+      true,
+      disposalTimeoutMs,
+    );
     void cleanup.catch((cleanupError) =>
       logFrameworkError(
         "Falha no cleanup deferido da aplicação.",
@@ -70,5 +85,5 @@ export async function closeEmpilhaResources(
     throw error;
   }
 
-  await getCleanupPromise(http, container, hooks, false);
+  await getCleanupPromise(http, container, hooks, false, disposalTimeoutMs);
 }

@@ -373,4 +373,18 @@ describe("Empilha lifecycle", () => {
 
     expect(closed).toEqual(["cache", "pool"]);
   });
+
+  test("limita o tempo de descarte de recursos", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const app = new Empilha()
+      .configureHttp({ disposalTimeout: 5 })
+      .onClose(() => pending);
+
+    await expect(app.close()).rejects.toThrow("Timeout ao descartar");
+
+    finish();
+  });
 });

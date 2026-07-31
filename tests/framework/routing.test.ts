@@ -36,6 +36,7 @@ describe("Empilha routing and decorators", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+    expect(response.headers.get("x-request-id")).toBeString();
   });
 
   test("aguarda rota assíncrona", async () => {

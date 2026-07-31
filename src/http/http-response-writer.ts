@@ -1,6 +1,6 @@
 import { createStringRecord } from "../utils/records";
 
-const DEFAULT_CORS_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+const DEFAULT_CORS_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS";
 const DEFAULT_CORS_HEADERS = "Content-Type, Authorization";
 
 function jsonBody(value: unknown): string {
@@ -19,6 +19,8 @@ type CorsConfig = {
   origin: string;
   methods: string;
   headers: string;
+  credentials: boolean;
+  maxAge?: number;
 };
 
 /**
@@ -54,11 +56,23 @@ export class HttpResponseWriter {
     origin = "*",
     methods = DEFAULT_CORS_METHODS,
     headers = DEFAULT_CORS_HEADERS,
+    credentials = false,
+    maxAge?: number,
   ): void {
+    if (credentials && origin === "*") {
+      throw new Error("CORS com credentials exige uma origem explícita.");
+    }
+    if (maxAge !== undefined && (!Number.isInteger(maxAge) || maxAge < 0)) {
+      throw new RangeError(
+        "O maxAge de CORS deve ser um inteiro não negativo.",
+      );
+    }
     this.cors = {
       origin,
       methods,
       headers,
+      credentials,
+      maxAge,
     };
     this.rebuildBaseHeaders();
   }
@@ -87,7 +101,32 @@ export class HttpResponseWriter {
   }
 
   /** Cria a resposta 204 de um preflight CORS. */
-  preflight(): Response {
+  preflight(request: Request): Response {
+    if (!this.cors) return this.error(404, "Not found");
+    const origin = request.headers.get("Origin");
+    const method = request.headers.get("Access-Control-Request-Method");
+    const requestedHeaders = request.headers
+      .get("Access-Control-Request-Headers")
+      ?.split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const allowedMethods = new Set(
+      this.cors.methods.split(",").map((value) => value.trim().toUpperCase()),
+    );
+    const allowedHeaders = new Set(
+      this.cors.headers.split(",").map((value) => value.trim().toLowerCase()),
+    );
+    if (
+      !origin ||
+      !method ||
+      (this.cors.origin !== "*" && origin !== this.cors.origin) ||
+      !allowedMethods.has(method.toUpperCase()) ||
+      requestedHeaders?.some(
+        (header) => !allowedHeaders.has(header) && !allowedHeaders.has("*"),
+      )
+    ) {
+      return this.error(403, "CORS preflight rejected");
+    }
     return new Response(null, {
       status: 204,
       headers: this.buildHeaders(undefined, false),
@@ -192,6 +231,11 @@ export class HttpResponseWriter {
       common["Access-Control-Allow-Origin"] = this.cors.origin;
       common["Access-Control-Allow-Methods"] = this.cors.methods;
       common["Access-Control-Allow-Headers"] = this.cors.headers;
+      common.Vary = "Origin";
+      if (this.cors.credentials)
+        common["Access-Control-Allow-Credentials"] = "true";
+      if (this.cors.maxAge !== undefined)
+        common["Access-Control-Max-Age"] = String(this.cors.maxAge);
     }
 
     if (this.serverHeader) {

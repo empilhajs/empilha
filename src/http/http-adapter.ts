@@ -124,8 +124,14 @@ export class HttpAdapter {
   }
 
   /** Habilita CORS no adapter e configura o preflight. */
-  enableCors(origin = "*", methods?: string, headers?: string): void {
-    this.responses.enableCors(origin, methods, headers);
+  enableCors(
+    origin = "*",
+    methods?: string,
+    headers?: string,
+    credentials?: boolean,
+    maxAge?: number,
+  ): void {
+    this.responses.enableCors(origin, methods, headers, credentials, maxAge);
   }
 
   /** Desabilita CORS para as respostas do adapter. */
@@ -334,9 +340,13 @@ export class HttpAdapter {
       );
     }
 
-    if (request.method === "OPTIONS" && this.responses.corsEnabled) {
+    if (
+      request.method === "OPTIONS" &&
+      this.responses.corsEnabled &&
+      request.headers.has("Access-Control-Request-Method")
+    ) {
       return this.runRequestWithoutScope(request, () =>
-        this.responses.preflight(),
+        this.responses.preflight(request),
       );
     }
 
@@ -365,16 +375,7 @@ export class HttpAdapter {
     parsedPath: ParsedRequestPath,
     route: MatchedRoute,
   ): Response | Promise<Response> {
-    const handler = route.handler as ConfiguredHandler;
-    const hasGlobalMiddleware = this.middlewares.length > 0;
-    const requiresScope =
-      Boolean(handler.requiresRequestContext) ||
-      hasGlobalMiddleware ||
-      this.handlerTimeoutMs !== null ||
-      this.bodyReader.hasTimeout;
-    const run = requiresScope
-      ? this.runRequestScope.bind(this)
-      : this.runRequestWithoutScope.bind(this);
+    const run = this.runRequestScope.bind(this);
 
     return run(request, () =>
       this.handleRequestInContext(request, parsedPath, route),
@@ -431,14 +432,19 @@ export class HttpAdapter {
     try {
       const response = runWithRequestContext(scope, callback);
 
+      const addRequestId = (value: Response): Response => {
+        value.headers.set("X-Request-Id", scope.requestId);
+        return value;
+      };
+
       if (isPromise(response)) {
-        return response.finally(() => {
-          this.requests.cleanupScope(scope);
-        });
+        return response
+          .then(addRequestId)
+          .finally(() => this.requests.cleanupScope(scope));
       }
 
       this.requests.cleanupScope(scope);
-      return response;
+      return addRequestId(response);
     } catch (error) {
       this.requests.cleanupScope(scope);
       throw error;
@@ -499,6 +505,16 @@ export class HttpAdapter {
   /** Registra um handler para GET. */
   get(path: string, handler: ServerHandler): void {
     this.addRoute("GET", path, handler);
+  }
+
+  /** Registra um handler para HEAD. */
+  head(path: string, handler: ServerHandler): void {
+    this.addRoute("HEAD", path, handler);
+  }
+
+  /** Registra um handler para OPTIONS. */
+  options(path: string, handler: ServerHandler): void {
+    this.addRoute("OPTIONS", path, handler);
   }
 
   /**

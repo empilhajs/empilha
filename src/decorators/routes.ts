@@ -54,6 +54,11 @@ function Route(method: HttpMethod, path: string): MethodDecorator {
  * findById() {}
  */
 export const Get = (path: string): MethodDecorator => Route("GET", path);
+/** Registra uma rota HTTP HEAD. */
+export const Head = (path: string): MethodDecorator => Route("HEAD", path);
+/** Registra uma rota HTTP OPTIONS. */
+export const Options = (path: string): MethodDecorator =>
+  Route("OPTIONS", path);
 /** Registra uma rota HTTP POST. */
 export const Post = (path: string): MethodDecorator => Route("POST", path);
 /** Registra uma rota HTTP PUT. */

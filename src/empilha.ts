@@ -38,6 +38,7 @@ import type { ControllerInstance } from "./compiler";
 import { invokeController } from "./utils/controller";
 import { ApplicationRunner } from "./application/application-runner";
 import type { HealthCheckOptions } from "./application/health-checks";
+import { validateTimeout } from "./http/adapter-helpers";
 
 export type {
   ManagedPostgresPool,
@@ -54,13 +55,22 @@ export type PostgresOptions = {
 };
 
 export type HttpOptions = {
-  cors?: string | false;
+  cors?: string | false | CorsOptions;
   serverHeader?: string;
   maxBodyBytes?: number;
   bodyTimeout?: number | null;
   handlerTimeout?: number | null;
   maxConcurrentRequests?: number | null;
   shutdownTimeout?: number | null;
+  disposalTimeout?: number | null;
+};
+
+export type CorsOptions = {
+  origin: string;
+  methods?: string;
+  headers?: string;
+  credentials?: boolean;
+  maxAge?: number;
 };
 
 export type { HealthCheckOptions } from "./application/health-checks";
@@ -119,6 +129,8 @@ export class Empilha {
   private readonly queries = this.context.queries;
 
   private validateResponses = process.env.NODE_ENV !== "production";
+
+  private disposalTimeoutMs: number | null = 15_000;
 
   private readonly background = this.context.background;
 
@@ -251,7 +263,17 @@ export class Empilha {
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
     if (options.cors === false) this.http.disableCors();
-    else if (options.cors !== undefined) this.http.enableCors(options.cors);
+    else if (typeof options.cors === "string")
+      this.http.enableCors(options.cors);
+    else if (options.cors !== undefined) {
+      this.http.enableCors(
+        options.cors.origin,
+        options.cors.methods,
+        options.cors.headers,
+        options.cors.credentials,
+        options.cors.maxAge,
+      );
+    }
     if (options.serverHeader !== undefined)
       this.http.setServerHeader(options.serverHeader);
     if (options.maxBodyBytes !== undefined)
@@ -264,6 +286,11 @@ export class Empilha {
       this.http.setRequestConcurrency(options.maxConcurrentRequests);
     if (options.shutdownTimeout !== undefined)
       this.http.setShutdownTimeout(options.shutdownTimeout);
+    if (options.disposalTimeout !== undefined)
+      this.disposalTimeoutMs = validateTimeout(
+        options.disposalTimeout,
+        "descarte",
+      );
 
     return this;
   }
@@ -521,7 +548,12 @@ export class Empilha {
 
   async close(): Promise<void> {
     await this.lifecycle.close(() =>
-      closeEmpilhaResources(this.http, this.container, this.closeHooks),
+      closeEmpilhaResources(
+        this.http,
+        this.container,
+        this.closeHooks,
+        this.disposalTimeoutMs,
+      ),
     );
   }
 }

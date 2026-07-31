@@ -11,6 +11,11 @@ describe("CORS", () => {
     const response = await adapter.handleRequest(
       request("/", {
         method: "OPTIONS",
+        headers: {
+          Origin: "https://example.test",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "X-Token",
+        },
       }),
     );
 
@@ -23,5 +28,6 @@ describe("CORS", () => {
     expect(response.headers.get("access-control-allow-headers")).toBe(
       "X-Token",
     );
+    expect(response.headers.get("vary")).toBe("Origin");
   });
 });

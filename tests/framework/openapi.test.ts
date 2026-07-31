@@ -76,6 +76,13 @@ describe("Empilha OpenAPI", () => {
       title: "Users API",
       version: "2.0.0",
     });
+    expect(create?.responses["408"]?.description).toBe("Request Timeout");
+    expect(create?.responses["413"]?.description).toBe("Payload Too Large");
+    expect(create?.responses["415"]?.description).toBe(
+      "Unsupported Media Type",
+    );
+    expect(create?.responses["503"]?.description).toBe("Service Unavailable");
+    expect(create?.responses["504"]?.description).toBe("Gateway Timeout");
     expect(find?.operationId).toBe("Users.find");
     expect(find?.parameters?.map((parameter) => parameter.in)).toEqual([
       "path",

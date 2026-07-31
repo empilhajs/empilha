@@ -194,6 +194,9 @@ function responseForRoute(route: RegisteredRouteMetadata): OpenApiResponse {
   if (!route.responseSchema) {
     return {
       description: "Successful response",
+      content: {
+        [mediaType]: {},
+      },
     };
   }
 
@@ -223,6 +226,11 @@ function errorResponsesForRoute(
 ): Record<string, OpenApiResponse> {
   const responses: Record<string, OpenApiResponse> = {
     "400": errorResponse("Bad Request"),
+    "408": errorResponse("Request Timeout"),
+    "413": errorResponse("Payload Too Large"),
+    "415": errorResponse("Unsupported Media Type"),
+    "503": errorResponse("Service Unavailable"),
+    "504": errorResponse("Gateway Timeout"),
     "500": errorResponse("Internal Server Error"),
   };
   if (route.auth || route.requiresAuth) {

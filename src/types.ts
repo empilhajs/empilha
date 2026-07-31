@@ -1,7 +1,14 @@
 import type { TSchema } from "@sinclair/typebox";
 import type { MiddlewareFn } from "./http/http-adapter";
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpMethod =
+  | "GET"
+  | "HEAD"
+  | "OPTIONS"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE";
 
 export type ParameterSource =
   | "body"

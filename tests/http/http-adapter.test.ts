@@ -25,6 +25,22 @@ describe("HttpAdapter", () => {
     expect(await dynamicResponse.text()).toBe("42");
   });
 
+  test("registra handlers explícitos para HEAD e OPTIONS", async () => {
+    const adapter = new HttpAdapter();
+    adapter.head("/resource", () => ({ status: 204, body: "" }));
+    adapter.options("/resource", () => ({ status: 200, body: "options" }));
+
+    expect(
+      (await adapter.handleRequest(request("/resource", { method: "HEAD" })))
+        .status,
+    ).toBe(204);
+    expect(
+      await (
+        await adapter.handleRequest(request("/resource", { method: "OPTIONS" }))
+      ).text(),
+    ).toBe("options");
+  });
+
   test("registra texto e JSON estáticos", async () => {
     const adapter = new HttpAdapter();
 
@@ -320,6 +336,10 @@ describe("HttpAdapter", () => {
     const preflightResponse = await adapter.handleRequest(
       request("/cors", {
         method: "OPTIONS",
+        headers: {
+          Origin: "https://example.test",
+          "Access-Control-Request-Method": "GET",
+        },
       }),
     );
 

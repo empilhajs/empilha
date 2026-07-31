@@ -7,7 +7,17 @@ export { Inject } from "../di";
 export { Identity, Context, Header, Param, Query, Request } from "./parameters";
 export { QueryParams } from "./query-params";
 export { Produces, Returns, Status } from "./response";
-export { Controller, Delete, Get, Patch, Post, Put, Use } from "./routes";
+export {
+  Controller,
+  Delete,
+  Get,
+  Head,
+  Options,
+  Patch,
+  Post,
+  Put,
+  Use,
+} from "./routes";
 export { Guard, defineRoles, Roles } from "./security";
 export { NotFoundWhenEmpty, Result, Sql, Transaction } from "./sql";
 export { compileValidator, type Validator } from "./validation";
