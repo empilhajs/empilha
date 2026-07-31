@@ -189,6 +189,7 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
   let state: "normal" | "single" | "double" | "dollar" | "line" | "block" =
     "normal";
   let dollarTag = "";
+  let blockDepth = 0;
 
   while (index < sql.length) {
     const current = sql[index];
@@ -240,10 +241,15 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
       prepared += current;
       index++;
 
-      if (current === "*" && next === "/") {
+      if (current === "/" && next === "*") {
         prepared += next;
         index++;
-        state = "normal";
+        blockDepth++;
+      } else if (current === "*" && next === "/") {
+        prepared += next;
+        index++;
+        blockDepth--;
+        if (blockDepth === 0) state = "normal";
       }
 
       continue;
@@ -299,6 +305,7 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
 
     if (current === "/" && next === "*") {
       state = "block";
+      blockDepth = 1;
       prepared += "/*";
       index += 2;
       continue;

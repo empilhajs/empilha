@@ -112,4 +112,37 @@ describe("SQL bindings", () => {
       compileNamedSQL("SELECT :body.title?::text, E'\\' :body.ignored'").sql,
     ).toBe("SELECT $1::text, E'\\' :body.ignored'");
   });
+
+  test("preserva bindings em comentários de bloco aninhados", () => {
+    const compiled = compileNamedSQL(
+      "/* outer :body.ignored /* inner :query.ignored */ still ignored */ SELECT :param.id",
+    );
+
+    expect(compiled.sql).toBe(
+      "/* outer :body.ignored /* inner :query.ignored */ still ignored */ SELECT $1",
+    );
+    expect(compiled.bindings).toEqual(["param.id"]);
+  });
+
+  test("não substitui tokens protegidos em entradas variadas", () => {
+    const protectedFragments = [
+      "':body.value'",
+      '"query.value"',
+      "-- :param.value\n",
+      "/* :header.value */",
+      "$$:identity.value$$",
+      "$tag$:auth.value$tag$",
+    ];
+
+    for (let index = 0; index < 100; index++) {
+      const fragment = protectedFragments[index % protectedFragments.length]!;
+      const compiled = compileNamedSQL(
+        `SELECT ${fragment}, :param.id, ${fragment}`,
+      );
+
+      expect(compiled.bindings).toEqual(["param.id"]);
+      expect(compiled.sql).toContain(fragment);
+      expect(compiled.sql).toContain("$1");
+    }
+  });
 });
