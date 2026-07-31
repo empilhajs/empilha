@@ -7,6 +7,8 @@ function request(authorization?: string): ServerRequest {
     method: "GET",
     pathname: "/private",
     headers: authorization ? { authorization } : {},
+    rawParams: {},
+    rawQuery: {},
     params: {},
     query: {},
     body: undefined,

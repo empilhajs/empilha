@@ -286,16 +286,19 @@ export class HttpAdapter {
     options: HandlerOptions,
     queryStart: number,
   ): ServerRequest {
+    const rawQuery = options.needsQuery
+      ? parseRequestQuery(request.url, queryStart)
+      : EMPTY_STRING_RECORD;
     return {
       method: request.method,
       pathname,
-      query: options.needsQuery
-        ? parseRequestQuery(request.url, queryStart)
-        : EMPTY_STRING_RECORD,
+      rawQuery,
+      query: { ...rawQuery },
       headers: options.needsHeaders
         ? headersToRecord(request.headers)
         : EMPTY_STRING_RECORD,
-      params,
+      rawParams: params,
+      params: { ...params },
       body: undefined,
     };
   }
@@ -571,7 +574,7 @@ export class HttpAdapter {
   ): void {
     const routeHandler: ServerHandler = (request) =>
       this.responses.text(
-        handler(request.params, request.query as Record<string, string>),
+        handler(request.rawParams, request.rawQuery as Record<string, string>),
         headers,
       );
     Object.assign(routeHandler, { needsQuery: true });

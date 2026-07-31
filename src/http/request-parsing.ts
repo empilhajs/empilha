@@ -70,7 +70,7 @@ function decodeQueryComponent(value: string): string {
 }
 
 function appendQueryValue(
-  query: Record<string, unknown>,
+  query: Record<string, string | readonly string[]>,
   key: string,
   value: string,
 ): void {
@@ -82,11 +82,11 @@ function appendQueryValue(
   }
 
   if (Array.isArray(previous)) {
-    previous.push(value);
+    query[key] = [...previous, value];
     return;
   }
 
-  query[key] = [previous, value];
+  query[key] = [previous as string, value];
 }
 
 /**
@@ -104,14 +104,17 @@ function appendQueryValue(
 export function parseRequestQuery(
   raw: string,
   knownQueryStart?: number,
-): Record<string, unknown> {
+): Record<string, string | readonly string[]> {
   const queryStart = knownQueryStart ?? findUrlParts(raw)[1];
 
   if (queryStart === -1) {
     return EMPTY_STRING_RECORD;
   }
 
-  const query = Object.create(null) as Record<string, unknown>;
+  const query = Object.create(null) as Record<
+    string,
+    string | readonly string[]
+  >;
   const fragmentStart = raw.indexOf("#", queryStart + 1);
   const queryEnd = fragmentStart === -1 ? raw.length : fragmentStart;
   const queryString = raw.slice(queryStart + 1, queryEnd);
