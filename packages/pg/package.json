@@ -1,6 +1,6 @@
 {
   "name": "@empilha/pg",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "Integração PostgreSQL para o framework Empilha usando pg.",
   "keywords": [
     "bun",
@@ -42,12 +42,12 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@types/pg": "^8.11.10",
-    "empilha": "^0.1.5",
+    "empilha": "^0.1.7",
     "pg": "^8.13.0",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "empilha": "^0.1.5",
+    "empilha": "^0.1.7",
     "pg": "^8.0.0"
   },
   "peerDependenciesMeta": {

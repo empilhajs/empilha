@@ -6,12 +6,12 @@
       "name": "@empilha/jwt",
       "devDependencies": {
         "@types/bun": "^1.3.14",
-        "empilha": "^0.1.5",
+        "empilha": "^0.1.7",
         "jose": "^6.2.4",
         "typescript": "^7.0.2",
       },
       "peerDependencies": {
-        "empilha": "^0.1.5",
+        "empilha": "^0.1.7",
         "jose": "^6.0.0",
       },
       "optionalPeers": [
@@ -69,7 +69,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "empilha": ["empilha@0.1.5", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-rbJyBO9kfKmGOBnizGUR27LISeEaL+yBwB702AWhBUTrz3Dk0pwP59OcQO5OL5jKM8HUz0h6PscvWAyDnl3EiQ=="],
+    "empilha": ["empilha@0.1.7", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-CJ3NkzortHYnffms72qNWQSLZmgB3mll5Ow8ZcmC8oTFg7JZ6wrrGiAD//fTKPLBB/M+Ur8JB0dCYo0nl5aP1A=="],
 
     "jose": ["jose@6.2.5", "", {}, "sha512-2E5L2yRp03FnwreJLJX8/r7mHiZICCf8kG7fAsTWkSQTDAcc46NIZoQLKy+EJ8sPoJlxyS4OQR5H70LjIZZlIQ=="],
 

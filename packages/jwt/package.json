@@ -1,6 +1,6 @@
 {
   "name": "@empilha/jwt",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "Integração JWT para o framework Empilha usando jose.",
   "keywords": [
     "authentication",
@@ -41,12 +41,12 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",
-    "empilha": "^0.1.5",
+    "empilha": "^0.1.7",
     "jose": "^6.2.4",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "empilha": "^0.1.5",
+    "empilha": "^0.1.7",
     "jose": "^6.0.0"
   },
   "peerDependenciesMeta": {

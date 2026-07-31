@@ -5,7 +5,7 @@
     "": {
       "name": "create-empilha",
       "dependencies": {
-        "empilha": "^0.1.5",
+        "empilha": "^0.1.7",
         "pg": "^8.13.0",
       },
       "devDependencies": {
@@ -20,7 +20,7 @@
 
     "@types/pg": ["@types/pg@8.20.0", "", { "dependencies": { "@types/node": "*", "pg-protocol": "*", "pg-types": "^2.2.0" } }, "sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow=="],
 
-    "empilha": ["empilha@0.1.5", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-rbJyBO9kfKmGOBnizGUR27LISeEaL+yBwB702AWhBUTrz3Dk0pwP59OcQO5OL5jKM8HUz0h6PscvWAyDnl3EiQ=="],
+    "empilha": ["empilha@0.1.7", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-CJ3NkzortHYnffms72qNWQSLZmgB3mll5Ow8ZcmC8oTFg7JZ6wrrGiAD//fTKPLBB/M+Ur8JB0dCYo0nl5aP1A=="],
 
     "pg": ["pg@8.22.0", "", { "dependencies": { "pg-connection-string": "^2.14.0", "pg-pool": "^3.14.0", "pg-protocol": "^1.15.0", "pg-types": "2.2.0", "pgpass": "1.0.5" }, "optionalDependencies": { "pg-cloudflare": "^1.4.0" }, "peerDependencies": { "pg-native": ">=3.0.1" }, "optionalPeers": ["pg-native"] }, "sha512-8wih1vVIBMxoUM2oB4soJsD9tDnDpLv4OXBJ+EJzFsvycD+lfyIreC2gGHq78f8jbLLt+bvlPTFdFZfJkOuzAA=="],
 
