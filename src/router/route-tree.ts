@@ -107,13 +107,13 @@ export class RouteTree<THandler extends Handler = Handler> {
   /**
    * Nó inicial da árvore.
    */
-  private readonly root = createNode<THandler>();
+  private root = createNode<THandler>();
 
   /**
    * Índice medido para rotas totalmente estáticas.
    * A árvore continua sendo a fonte de registro e validação.
    */
-  private readonly staticHandlers = Object.create(null) as Record<
+  private staticHandlers = Object.create(null) as Record<
     string,
     RouteMatch<THandler>
   >;
@@ -135,13 +135,29 @@ export class RouteTree<THandler extends Handler = Handler> {
 
   /** Restaura um snapshot previamente capturado. */
   restore(snapshot: RouteTree<THandler>): void {
-    const restored = snapshot.clone();
-    Object.assign(this.root, restored.root);
+    this.restoreFrom(snapshot.clone());
+  }
+
+  /**
+   * Restaura um snapshot transferindo sua árvore, sem um segundo clone.
+   * O snapshot é consumido e não deve ser reutilizado depois desta chamada.
+   */
+  restoreAndConsume(snapshot: RouteTree<THandler>): void {
+    this.restoreFrom(snapshot);
+    snapshot.root = createNode<THandler>();
+    snapshot.staticHandlers = Object.create(null) as Record<
+      string,
+      RouteMatch<THandler>
+    >;
+  }
+
+  private restoreFrom(restored: RouteTree<THandler>): void {
+    this.root = restored.root;
 
     for (const key of Object.keys(this.staticHandlers)) {
       delete this.staticHandlers[key];
     }
-    Object.assign(this.staticHandlers, restored.staticHandlers);
+    this.staticHandlers = restored.staticHandlers;
   }
 
   private clone(): RouteTree<THandler> {

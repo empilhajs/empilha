@@ -159,7 +159,7 @@ export class HttpAdapter {
 
   /** Restaura o registro de rotas após uma falha no bootstrap. */
   restoreRoutes(snapshot: RouteTree<ServerHandler>): void {
-    this.router.restore(snapshot);
+    this.router.restoreAndConsume(snapshot);
   }
 
   /** Habilita CORS no adapter e configura o preflight. */
