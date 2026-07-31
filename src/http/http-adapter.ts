@@ -33,7 +33,7 @@ import {
 } from "./request-parsing";
 import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
-import { logFrameworkError } from "../utils/logger";
+import { ApplicationLogger, type Logger } from "../utils/logger";
 import { HttpServer } from "./http-server";
 export type { ServerResponse } from "./http-response-writer";
 export type {
@@ -85,6 +85,12 @@ export class HttpAdapter {
     status: 500,
     body: JSON.stringify({ error: "Internal server error" }),
   });
+
+  private logger: Logger = new ApplicationLogger();
+
+  setLogger(logger: Logger): void {
+    this.logger = logger;
+  }
 
   /** Define a factory usada para criar containers de request scope. */
   setRequestScopeFactory(factory: () => Container): void {
@@ -200,7 +206,7 @@ export class HttpAdapter {
       abortRequestScope(scope, new Error("Handler timeout"));
       return this.responses.error(504, "Handler timeout");
     }).catch((error) => {
-      logFrameworkError("Falha ao produzir resposta HTTP.", error);
+      this.logger.error(error, "Falha ao produzir resposta HTTP.");
       return this.responses.error(500, "Internal server error");
     });
   }
@@ -209,10 +215,13 @@ export class HttpAdapter {
     return this.errorHandler(error)
       .then((response) => this.responses.write(response))
       .catch((handlerError) => {
-        logFrameworkError("O error handler HTTP falhou.", {
-          cause: error,
-          handlerError,
-        });
+        this.logger.error(
+          {
+            cause: error,
+            handlerError,
+          },
+          "O error handler HTTP falhou.",
+        );
         return this.responses.error(500, "Internal server error");
       });
   }

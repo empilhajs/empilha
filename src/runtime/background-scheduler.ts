@@ -1,4 +1,5 @@
 import { runWithRequestContext, type RequestScope } from "../context/index";
+import { ApplicationLogger, type Logger } from "../utils/logger";
 
 /** Opções de concorrência e limite da fila de tarefas em background. */
 export type BackgroundSchedulerOptions = {
@@ -26,6 +27,12 @@ export class BackgroundScheduler {
   private errorHandler:
     | ((error: unknown, metadata: unknown) => void)
     | undefined;
+
+  private logger: Logger = new ApplicationLogger();
+
+  setLogger(logger: Logger): void {
+    this.logger = logger;
+  }
 
   /**
    * Configura a concorrência máxima e o tamanho da fila.
@@ -112,8 +119,15 @@ export class BackgroundScheduler {
       .catch(async (error) => {
         try {
           await Promise.resolve(this.errorHandler?.(error, job.metadata));
-        } catch {
-          // Observabilidade não pode quebrar o scheduler.
+        } catch (observerError) {
+          this.logger.error(
+            {
+              cause: observerError,
+              jobError: error,
+              metadata: job.metadata,
+            },
+            "O observador de erro em background falhou.",
+          );
         }
       })
       .finally(() => {

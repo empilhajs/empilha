@@ -29,6 +29,12 @@ describe("BackgroundScheduler", () => {
   test("aguarda e captura observer de erro assíncrono", async () => {
     const scheduler = new BackgroundScheduler();
     let observedError: unknown;
+    const logs: unknown[] = [];
+    scheduler.setLogger({
+      info: () => {},
+      warn: () => {},
+      error: (details) => logs.push(details),
+    });
     scheduler.onError(async (error) => {
       observedError = error;
       throw new Error("observer failure");
@@ -40,5 +46,6 @@ describe("BackgroundScheduler", () => {
 
     await completion;
     expect((observedError as Error).message).toBe("job failure");
+    expect(logs).toHaveLength(1);
   });
 });

@@ -105,6 +105,7 @@ export type {
   RequestContext,
 } from "./types";
 export { serializeJson } from "./runtime";
+export type { Logger } from "./utils/logger";
 export type { AuthResult, AuthTokenHandler, RoleHierarchy } from "./runtime";
 
 export * as t from "@sinclair/typebox";

@@ -39,6 +39,7 @@ import { invokeController } from "./utils/controller";
 import { ApplicationRunner } from "./application/application-runner";
 import type { HealthCheckOptions } from "./application/health-checks";
 import { validateTimeout } from "./http/adapter-helpers";
+import type { Logger } from "./utils/logger";
 
 export type {
   ManagedPostgresPool,
@@ -97,6 +98,7 @@ export type EmpilhaRuntimeConfig = {
   };
   logging?: {
     requests?: boolean;
+    logger?: Logger;
   };
 };
 
@@ -137,6 +139,8 @@ export class Empilha {
   private readonly errors = this.context.errors;
 
   private readonly healthChecks = this.context.healthChecks;
+
+  private readonly loggerService = this.context.logger;
 
   private readonly closeHooks: CloseHook[] = [];
 
@@ -197,6 +201,7 @@ export class Empilha {
       getUrl: () => this.http.url,
       openApiUiPath: OPENAPI_UI_PATH,
       openApiDocumentPath: OPENAPI_DOCUMENT_PATH,
+      logger: this.loggerService,
     });
   }
 
@@ -228,7 +233,15 @@ export class Empilha {
     if (config.validation?.responses !== undefined)
       this.validateResponseSchemas(config.validation.responses);
     if (config.logging?.requests) this.use(requestLogger());
+    if (config.logging?.logger) this.logger(config.logging.logger);
 
+    return this;
+  }
+
+  /** Define o logger usado por esta aplicação e seus serviços internos. */
+  logger(logger: Logger): this {
+    this.assertConfiguring("logger()");
+    this.loggerService.configure(logger);
     return this;
   }
 

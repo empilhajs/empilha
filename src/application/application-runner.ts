@@ -1,5 +1,5 @@
 import type { ApplicationLifecycle } from "./lifecycle";
-import { logFrameworkError } from "../utils/logger";
+import type { Logger } from "../utils/logger";
 
 export type ApplicationRunOptions = {
   port?: number;
@@ -17,6 +17,7 @@ type RunnerOptions = {
   getUrl: () => URL | null;
   openApiUiPath: string;
   openApiDocumentPath: string;
+  logger: Logger;
 };
 
 /** Orquestra somente a inicialização, execução e parada do processo HTTP. */
@@ -48,7 +49,7 @@ export class ApplicationRunner {
       let shutdownPromise: Promise<void> | undefined;
       const shutdown = () => {
         shutdownPromise ??= this.options.close().catch((error: unknown) => {
-          logFrameworkError("Falha ao encerrar a aplicação:", error);
+          this.options.logger.error(error, "Falha ao encerrar a aplicação:");
           process.exitCode = 1;
         });
       };
@@ -58,12 +59,18 @@ export class ApplicationRunner {
 
     const baseUrl =
       this.options.getUrl()?.origin ?? `http://localhost:${options.port}`;
-    console.log(`🚀 API: ${baseUrl}`);
+    this.options.logger.info({ url: baseUrl }, "🚀 API disponível");
     if (this.options.hasOpenApi()) {
-      console.log(`📚 Docs: ${baseUrl}${this.options.openApiUiPath}`);
-      console.log(`📄 OpenAPI: ${baseUrl}${this.options.openApiDocumentPath}`);
+      this.options.logger.info(
+        { url: `${baseUrl}${this.options.openApiUiPath}` },
+        "📚 Docs",
+      );
+      this.options.logger.info(
+        { url: `${baseUrl}${this.options.openApiDocumentPath}` },
+        "📄 OpenAPI",
+      );
     }
     if (this.options.hasHealthChecks())
-      console.log(`❤️ Health: ${baseUrl}/health/ready`);
+      this.options.logger.info({ url: `${baseUrl}/health/ready` }, "❤️ Health");
   }
 }

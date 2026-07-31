@@ -10,6 +10,7 @@ import { OpenApiDocumentBuilder } from "../openapi";
 import { PostgresExecutor, QueryRegistry } from "../sql";
 import { ApplicationLifecycle } from "./lifecycle";
 import { HealthCheckRegistry } from "./health-checks";
+import { ApplicationLogger } from "../utils/logger";
 
 export class ApplicationContext {
   readonly http: HttpAdapter;
@@ -24,6 +25,7 @@ export class ApplicationContext {
   readonly openApi: OpenApiDocumentBuilder;
   readonly healthChecks: HealthCheckRegistry;
   readonly pluginServices: Map<string, unknown>;
+  readonly logger: ApplicationLogger;
 
   constructor() {
     this.http = new HttpAdapter();
@@ -38,5 +40,8 @@ export class ApplicationContext {
     this.openApi = new OpenApiDocumentBuilder();
     this.healthChecks = new HealthCheckRegistry();
     this.pluginServices = new Map();
+    this.logger = new ApplicationLogger();
+    this.http.setLogger(this.logger);
+    this.background.setLogger(this.logger);
   }
 }
