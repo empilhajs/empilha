@@ -4,6 +4,13 @@ import { RequestTracker } from "./request-tracker";
 import { withTimeout } from "../utils/timeout";
 
 type BunServer = ReturnType<typeof Bun.serve>;
+export type NativeRouteHandler = (
+  request: Request,
+) => Response | Promise<Response>;
+export type NativeRouteValue =
+  | NativeRouteHandler
+  | Partial<Record<string, NativeRouteHandler>>;
+export type NativeRoutes = Record<string, NativeRouteValue>;
 
 /** Responsável somente pelo ciclo de vida do servidor Bun e sua drenagem. */
 export class HttpServer {
@@ -13,6 +20,7 @@ export class HttpServer {
   constructor(
     private readonly fetch: (request: Request) => Response | Promise<Response>,
     private readonly requests: RequestTracker,
+    private readonly getRoutes?: () => NativeRoutes | undefined,
   ) {}
 
   get url(): URL | null {
@@ -33,7 +41,52 @@ export class HttpServer {
       throw new RangeError(`Porta inválida: ${port}.`);
     }
 
-    this.server = Bun.serve({ port, fetch: this.fetch });
+    const routes = this.getRoutes?.();
+    const trackedRoutes = routes ? this.trackNativeRoutes(routes) : undefined;
+    this.server = Bun.serve({
+      port,
+      fetch: this.fetch,
+      ...(trackedRoutes && Object.keys(trackedRoutes).length > 0
+        ? { routes: trackedRoutes }
+        : {}),
+    } as Bun.Serve.Options<unknown, string>);
+  }
+
+  private trackNativeRoutes(routes: NativeRoutes): NativeRoutes {
+    const tracked: NativeRoutes = Object.create(null);
+
+    for (const [path, value] of Object.entries(routes)) {
+      if (typeof value === "function") {
+        tracked[path] = this.trackNativeHandler(value);
+        continue;
+      }
+
+      const methods: Partial<Record<string, NativeRouteHandler>> = {};
+      for (const [method, handler] of Object.entries(value)) {
+        if (handler) methods[method] = this.trackNativeHandler(handler);
+      }
+      tracked[path] = methods;
+    }
+
+    return tracked;
+  }
+
+  private trackNativeHandler(handler: NativeRouteHandler): NativeRouteHandler {
+    return (request) => {
+      this.requests.tryEnter(null);
+
+      try {
+        const response = handler(request);
+        if (response instanceof Promise) {
+          return response.finally(() => this.requests.leave());
+        }
+        this.requests.leave();
+        return response;
+      } catch (error) {
+        this.requests.leave();
+        throw error;
+      }
+    };
   }
 
   async close(): Promise<void> {

@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { parseRequestQuery } from "../../src/http/request-parsing";
+import {
+  parseRequestPath,
+  parseRequestQuery,
+} from "../../src/http/request-parsing";
 
 describe("request query parsing", () => {
+  test("mantém path codificado diferente do path literal", () => {
+    expect(parseRequestPath("http://test/health").pathname).toBe("/health");
+    expect(parseRequestPath("http://test/health%20").pathname).toBe("/health ");
+    expect(parseRequestPath("http://test/health%20").pathname).not.toBe(
+      "/health",
+    );
+  });
+
   test("preserva a semântica pública em entradas codificadas e repetidas", () => {
     const cases = [
       ["/?name=ana", { name: "ana" }],

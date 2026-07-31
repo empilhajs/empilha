@@ -358,6 +358,51 @@ describe("Empilha lifecycle", () => {
     await app.close();
   });
 
+  test("mantém o limite de concorrência em rotas nativas do Bun", async () => {
+    let finish!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+
+    class NativeLimited {
+      @Get("/")
+      async get() {
+        await blocker;
+        return { ok: true };
+      }
+    }
+
+    Controller("/native-limit")(NativeLimited);
+
+    const app = new Empilha()
+      .configureHttp({
+        cors: false,
+        handlerTimeout: null,
+        maxConcurrentRequests: 1,
+      })
+      .validate([NativeLimited])
+      .initialize([NativeLimited]);
+
+    try {
+      await app.listen(0);
+      const internals = app as unknown as {
+        http: { port: number | null };
+      };
+      const url = `http://localhost:${internals.http.port}/native-limit`;
+
+      const first = fetch(url);
+      await Promise.resolve();
+      const rejected = await fetch(url);
+
+      expect(rejected.status).toBe(503);
+
+      finish();
+      expect((await first).status).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("encerra recursos externos uma vez e em ordem inversa", async () => {
     const closed: string[] = [];
     const app = new Empilha()

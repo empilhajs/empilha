@@ -115,7 +115,7 @@ export class RouteTree<THandler extends Handler = Handler> {
    */
   private readonly staticHandlers = Object.create(null) as Record<
     string,
-    THandler
+    RouteMatch<THandler>
   >;
 
   /** Valida várias inserções sem alterar a árvore atual. */
@@ -239,7 +239,11 @@ export class RouteTree<THandler extends Handler = Handler> {
     current.handlers.set(normalizedMethod, handler);
 
     if (!segments.some((segment) => paramRegex.test(segment))) {
-      this.staticHandlers[`${normalizedMethod} ${normalizedPath}`] = handler;
+      this.staticHandlers[`${normalizedMethod} ${normalizedPath}`] =
+        Object.freeze({
+          handler,
+          params: EMPTY_STRING_RECORD,
+        });
     }
   }
 
@@ -268,15 +272,13 @@ export class RouteTree<THandler extends Handler = Handler> {
     const normalizedMethod = normalizeMethod(method);
     const normalizedPath = normalizePath(path);
 
-    const staticHandler =
-      this.staticHandlers[`${normalizedMethod} ${normalizedPath}`];
+    const staticMatch =
+      this.staticHandlers[`${normalizedMethod} ${normalizedPath}`] ??
+      (normalizedMethod === "HEAD"
+        ? this.staticHandlers[`GET ${normalizedPath}`]
+        : undefined);
 
-    if (staticHandler !== undefined) {
-      return {
-        handler: staticHandler,
-        params: EMPTY_STRING_RECORD,
-      };
-    }
+    if (staticMatch !== undefined) return staticMatch;
 
     const segments = splitPath(normalizedPath);
 
@@ -309,7 +311,9 @@ export class RouteTree<THandler extends Handler = Handler> {
     }
 
     if (index === segments.length) {
-      const handler = current.handlers.get(normalizedMethod);
+      const handler =
+        current.handlers.get(normalizedMethod) ??
+        (normalizedMethod === "HEAD" ? current.handlers.get("GET") : undefined);
 
       if (handler !== undefined) {
         return {
@@ -333,7 +337,11 @@ export class RouteTree<THandler extends Handler = Handler> {
       const state = stack.pop() as SearchState;
 
       if (state.segmentIndex === segments.length) {
-        const handler = state.node.handlers.get(normalizedMethod);
+        const handler =
+          state.node.handlers.get(normalizedMethod) ??
+          (normalizedMethod === "HEAD"
+            ? state.node.handlers.get("GET")
+            : undefined);
 
         if (handler !== undefined) {
           return { handler, params: state.params };
@@ -344,7 +352,8 @@ export class RouteTree<THandler extends Handler = Handler> {
       const segment = segments[state.segmentIndex];
       const staticChild = state.node.staticChildren.get(segment);
 
-      // Push the parameter branch first so the static branch retains priority.
+      // Empilha primeiro o ramo parametrizado para preservar a prioridade do
+      // ramo estático durante o backtracking.
       const paramChild = state.node.paramChild;
       if (paramChild) {
         const nextParams = Object.assign(createStringRecord(), state.params);

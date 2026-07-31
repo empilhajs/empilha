@@ -34,7 +34,7 @@ import {
 import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
 import { ApplicationLogger, type Logger } from "../utils/logger";
-import { HttpServer } from "./http-server";
+import { HttpServer, type NativeRouteValue } from "./http-server";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -52,6 +52,20 @@ type MatchedRoute = {
   params: Record<string, string>;
 };
 
+// Handlers que não declaram nenhuma dependência do request recebem este valor
+// apenas para manter a assinatura do pipeline. Ele evita materializar um
+// ServerRequest novo para cada ping/rota estática.
+const EMPTY_SERVER_REQUEST: ServerRequest = Object.freeze({
+  method: "",
+  pathname: "/",
+  rawQuery: EMPTY_STRING_RECORD,
+  query: EMPTY_STRING_RECORD,
+  headers: EMPTY_STRING_RECORD,
+  rawParams: EMPTY_STRING_RECORD,
+  params: EMPTY_STRING_RECORD,
+  body: undefined,
+});
+
 /**
  * Adapta handlers do framework ao servidor HTTP do Bun.
  *
@@ -61,6 +75,8 @@ type MatchedRoute = {
  */
 export class HttpAdapter {
   private readonly router = new RouteTree<ServerHandler>();
+
+  private readonly nativeRoutes: Record<string, unknown> = Object.create(null);
 
   private readonly middlewares: MiddlewareFn[] = [];
 
@@ -79,6 +95,14 @@ export class HttpAdapter {
   private readonly server = new HttpServer(
     (request) => this.handleRequest(request),
     this.requests,
+    () =>
+      this.middlewares.length === 0 &&
+      this.handlerTimeoutMs === null &&
+      this.requestConcurrency === null &&
+      !this.bodyReader.hasTimeout &&
+      !this.bodyReader.hasCustomMaxBytes
+        ? (this.nativeRoutes as Record<string, NativeRouteValue>)
+        : undefined,
   );
 
   private errorHandler: ErrorHandler = async () => ({
@@ -289,22 +313,23 @@ export class HttpAdapter {
     const rawQuery = options.needsQuery
       ? parseRequestQuery(request.url, queryStart)
       : EMPTY_STRING_RECORD;
+    const minimalRequest = options.minimalRequest === true;
     return {
       method: request.method,
       pathname,
       rawQuery,
-      query: { ...rawQuery },
+      query: minimalRequest ? EMPTY_STRING_RECORD : { ...rawQuery },
       headers: options.needsHeaders
         ? headersToRecord(request.headers)
         : EMPTY_STRING_RECORD,
       rawParams: params,
-      params: { ...params },
+      params: minimalRequest ? EMPTY_STRING_RECORD : { ...params },
       body: undefined,
     };
   }
 
   // -------------------------------------------------------------------------
-  // Request scope e entrada HTTP
+  // Escopo da requisição e entrada HTTP
   // -------------------------------------------------------------------------
 
   private handleRequestBody(
@@ -387,6 +412,29 @@ export class HttpAdapter {
     parsedPath: ParsedRequestPath,
     route: MatchedRoute,
   ): Response | Promise<Response> {
+    const handler = route.handler as ConfiguredHandler;
+
+    // Rotas simples não precisam de AsyncLocalStorage, AbortController nem de
+    // um container filho por requisição. Além de reduzir o custo normal do
+    // pipeline, isso evita que cada request deixe um conjunto de objetos
+    // nativos aguardando o próximo ciclo de coleta do Bun.
+    //
+    // O timeout padrão usa requestContext() para abortar o scope quando vence,
+    // portanto ele também exige um scope. Aplicações que desabilitam o timeout
+    // (como rotas estáticas e o benchmark) podem usar o caminho leve.
+    if (!handler.requiresRequestContext && this.handlerTimeoutMs === null) {
+      if (
+        (handler.stateless || handler.synchronous) &&
+        this.requestConcurrency === null
+      ) {
+        return this.handleRequestInContext(request, parsedPath, route);
+      }
+
+      return this.runRequestWithoutScope(request, () =>
+        this.handleRequestInContext(request, parsedPath, route),
+      );
+    }
+
     const run = this.runRequestScope.bind(this);
 
     return run(request, () =>
@@ -473,6 +521,10 @@ export class HttpAdapter {
     const handler = route.handler as ConfiguredHandler;
     const hasGlobalMiddleware = this.middlewares.length > 0;
 
+    if (!hasGlobalMiddleware && handler.stateless) {
+      return this.dispatchHandler(EMPTY_SERVER_REQUEST, handler);
+    }
+
     let serverRequest: ServerRequest;
 
     try {
@@ -512,6 +564,48 @@ export class HttpAdapter {
 
     const normalizedPath = normalizePath(path);
     this.router.insert(normalizedMethod, normalizedPath, handler);
+
+    const configured = handler as ConfiguredHandler;
+    if (
+      configured.length === 0 &&
+      !configured.needsRequest &&
+      !configured.needsQuery &&
+      !configured.needsHeaders &&
+      !configured.needsBody &&
+      !configured.requiresRequestContext
+    ) {
+      this.addNativeRoute(normalizedMethod, normalizedPath, (_request) => {
+        try {
+          const result = handler(undefined as never);
+          if (isPromise(result)) {
+            return result
+              .then((response) =>
+                this.normalizeHandlerResponse(
+                  response,
+                  configured.responseType,
+                ),
+              )
+              .catch((error) => this.handleDispatchError(error));
+          }
+          return this.normalizeHandlerResponse(result, configured.responseType);
+        } catch (error) {
+          return this.handleDispatchError(error);
+        }
+      });
+    }
+  }
+
+  private addNativeRoute(
+    method: string,
+    path: string,
+    handler: NativeRouteValue,
+  ): void {
+    const current = this.nativeRoutes[path];
+    if (current && typeof current === "object") {
+      (current as Record<string, NativeRouteValue>)[method] = handler;
+      return;
+    }
+    this.nativeRoutes[path] = { [method]: handler };
   }
 
   /** Registra um handler para GET. */
@@ -537,7 +631,9 @@ export class HttpAdapter {
       throw new Error("Respostas estáticas não podem usar parâmetros de rota.");
     }
 
-    this.get(path, () => this.responses.text(body, headers));
+    const handler: ServerHandler = () => this.responses.text(body, headers);
+    Object.assign(handler, { stateless: true });
+    this.get(path, handler);
   }
 
   /** Registra JSON imutável com serialização feita uma única vez. */
@@ -551,14 +647,16 @@ export class HttpAdapter {
     }
 
     const body = JSON.stringify(value) ?? "null";
-    this.get(path, () => ({
+    const handler: ServerHandler = () => ({
       status: 200,
       body,
       headers: {
         "Content-Type": "application/json",
         ...headers,
       },
-    }));
+    });
+    Object.assign(handler, { stateless: true });
+    this.get(path, handler);
   }
 
   /**
@@ -577,8 +675,30 @@ export class HttpAdapter {
         handler(request.rawParams, request.rawQuery as Record<string, string>),
         headers,
       );
-    Object.assign(routeHandler, { needsQuery: true });
+    Object.assign(routeHandler, {
+      needsQuery: true,
+      minimalRequest: true,
+      synchronous: true,
+    });
     this.addRoute("GET", path, routeHandler);
+    this.addNativeRoute("GET", normalizePath(path), (request) => {
+      try {
+        const parsed = parseRequestPath(request.url);
+        const params =
+          (
+            request as Request & {
+              params?: Record<string, string>;
+            }
+          ).params ?? EMPTY_STRING_RECORD;
+        const query = parseRequestQuery(request.url, parsed.queryStart);
+        return this.responses.text(
+          handler(params, query as Record<string, string>),
+          headers,
+        );
+      } catch (error) {
+        return this.handleDispatchError(error);
+      }
+    });
   }
 
   /**
@@ -592,13 +712,16 @@ export class HttpAdapter {
     ) => unknown | Response | Promise<unknown | Response>,
     headers: Record<string, string> = {},
   ): void {
-    const routeHandler: ServerHandler = async (request) => {
-      const result = await handler(request.body);
-      return result instanceof Response
+    const writeResult = (result: unknown | Response): Response =>
+      result instanceof Response
         ? result
         : this.responses.json(200, result, headers);
+
+    const routeHandler: ServerHandler = (request) => {
+      const result = handler(request.body);
+      return isPromise(result) ? result.then(writeResult) : writeResult(result);
     };
-    Object.assign(routeHandler, { needsBody: true });
+    Object.assign(routeHandler, { needsBody: true, minimalRequest: true });
     this.addRoute("POST", path, routeHandler);
   }
 
@@ -612,7 +735,9 @@ export class HttpAdapter {
       throw new Error("Arquivos estáticos não podem usar parâmetros de rota.");
     }
 
-    this.get(path, () => this.responses.file(file, headers));
+    const handler: ServerHandler = () => this.responses.file(file, headers);
+    Object.assign(handler, { stateless: true });
+    this.get(path, handler);
   }
 
   /** Registra um handler para POST. */

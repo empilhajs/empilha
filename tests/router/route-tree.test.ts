@@ -67,6 +67,15 @@ describe("RouteTree", () => {
     expect(router.find("post", "/users")?.handler()).toBe("post");
   });
 
+  test("trata HEAD como GET quando não existe rota HEAD explícita", () => {
+    const router = new RouteTree();
+    const handler = () => "get";
+
+    router.insert("GET", "/users", handler);
+
+    expect(router.find("HEAD", "/users")?.handler).toBe(handler);
+  });
+
   test("decodifica parâmetro e rejeita segmento codificado inválido", () => {
     const router = new RouteTree();
 

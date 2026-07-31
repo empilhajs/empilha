@@ -11,6 +11,9 @@ export type HandlerOptions = {
   needsHeaders?: boolean;
   needsBody?: boolean;
   requiresRequestContext?: boolean;
+  stateless?: boolean;
+  minimalRequest?: boolean;
+  synchronous?: boolean;
   responseType?: "text" | "json";
   queryStart?: number;
 };

@@ -12,6 +12,18 @@ export type NormalizePathOptions = {
  * @throws {Error} Quando o método está vazio.
  */
 export function normalizeMethod(method: string): string {
+  if (
+    method === "GET" ||
+    method === "POST" ||
+    method === "PUT" ||
+    method === "PATCH" ||
+    method === "DELETE" ||
+    method === "HEAD" ||
+    method === "OPTIONS"
+  ) {
+    return method;
+  }
+
   const normalized = method.trim().toUpperCase();
 
   if (!normalized) {
@@ -42,6 +54,18 @@ export function normalizePath(
   options: NormalizePathOptions = {},
 ): string {
   const { allowEmpty = false, label = "caminho" } = options;
+
+  // O servidor já entrega paths decodificados e canônicos para o router na
+  // maioria das requisições. Evita trim/replace/regex nesse hot path.
+  if (
+    !allowEmpty &&
+    path.length > 0 &&
+    path[0] === "/" &&
+    (path.length === 1 ||
+      (path[path.length - 1] !== "/" && !path.includes("//")))
+  ) {
+    return path;
+  }
 
   let normalized = path.trim().replace(/\/{2,}/g, "/");
 

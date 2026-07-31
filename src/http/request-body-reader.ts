@@ -23,10 +23,16 @@ export class RequestBodyError extends Error {
 export class JsonBodyReader {
   private maxBytes = DEFAULT_MAX_BODY_BYTES;
 
+  private customMaxBytes = false;
+
   private timeoutMs: number | null = null;
 
   get hasTimeout(): boolean {
     return this.timeoutMs !== null;
+  }
+
+  get hasCustomMaxBytes(): boolean {
+    return this.customMaxBytes;
   }
 
   /** Define o limite máximo do body em bytes. */
@@ -36,6 +42,7 @@ export class JsonBodyReader {
     }
 
     this.maxBytes = bytes;
+    this.customMaxBytes = true;
   }
 
   /** Define o timeout de leitura ou `null` para desabilitá-lo. */
@@ -75,6 +82,28 @@ export class JsonBodyReader {
       !/^application\/json(?:\s*;|\s*$)/i.test(contentType)
     ) {
       throw new RequestBodyError(415, "Unsupported media type");
+    }
+
+    // O Bun possui um caminho nativo muito rápido para JSON pequeno quando o
+    // Content-Length já prova que o limite será respeitado. Sem esse dado, a
+    // leitura precisa ser feita em chunks: arrayBuffer() só permite verificar
+    // o limite depois de materializar todo o body.
+    if (this.timeoutMs === null) {
+      if (
+        !this.customMaxBytes &&
+        declaredLength !== null &&
+        declaredLength > 0 &&
+        declaredLength <= this.maxBytes
+      ) {
+        try {
+          return await request.json();
+        } catch (error) {
+          if (error instanceof SyntaxError) {
+            throw new RequestBodyError(400, "Invalid JSON body");
+          }
+          throw error;
+        }
+      }
     }
 
     const reader = request.body.getReader();

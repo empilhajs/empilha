@@ -4,6 +4,23 @@ import { JsonBodyReader } from "../../src/http";
 import { request } from "../helpers/test-utils";
 
 describe("HttpAdapter", () => {
+  test("não cria scope para rota stateless sem timeout", async () => {
+    const adapter = new HttpAdapter();
+    let scopesCreated = 0;
+
+    adapter.setHandlerTimeout(null);
+    adapter.setRequestScopeFactory(() => {
+      scopesCreated++;
+      return new Container();
+    });
+    adapter.getText("/stateless", "ok");
+
+    const response = await adapter.handleRequest(request("/stateless"));
+
+    expect(response.status).toBe(200);
+    expect(scopesCreated).toBe(0);
+  });
+
   test("atende rota estática e dinâmica", async () => {
     const adapter = new HttpAdapter();
 
@@ -306,6 +323,42 @@ describe("HttpAdapter", () => {
     adapter.get("/stateless", handler);
 
     const responsePromise = adapter.handleRequest(request("/stateless"));
+    let closed = false;
+    const closePromise = adapter.close().then(() => {
+      closed = true;
+    });
+
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    finish();
+    expect((await responsePromise).status).toBe(200);
+    await closePromise;
+    expect(closed).toBe(true);
+  });
+
+  test("close aguarda handler assíncrono registrado como rota nativa", async () => {
+    let finish!: () => void;
+    let started!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const handlerStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    adapter.get("/native", async () => {
+      started();
+      await blocker;
+      return { status: 200, body: "ok" };
+    });
+
+    await adapter.listen(0);
+    const responsePromise = fetch(`${adapter.url}native`);
+    await handlerStarted;
+
     let closed = false;
     const closePromise = adapter.close().then(() => {
       closed = true;
