@@ -255,6 +255,32 @@ describe("Empilha routing and decorators", () => {
     expect(await textResponse.text()).toBe("hello");
   });
 
+  test("aplica validateResponseSchemas em tempo de execução após initialize", async () => {
+    const schema = t.Object({ ok: t.Boolean() });
+
+    class ToggleValidation {
+      @Get("/")
+      @Returns(schema)
+      get() {
+        return { ok: "invalid" } as unknown as { ok: boolean };
+      }
+    }
+
+    Controller("/toggle-validation")(ToggleValidation);
+
+    const app = new Empilha()
+      .configureHttp({ cors: false })
+      .validateResponseSchemas(true)
+      .validate([ToggleValidation])
+      .initialize([ToggleValidation]);
+
+    expect((await app.test().get("/toggle-validation")).status).toBe(500);
+
+    app.validateResponseSchemas(false);
+
+    expect((await app.test().get("/toggle-validation")).status).toBe(200);
+  });
+
   test("usa DELETE 204 sem corpo e preserva Produces e Server", async () => {
     class Items {
       @Delete("/")

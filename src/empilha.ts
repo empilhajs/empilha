@@ -57,6 +57,7 @@ export type PostgresOptions = {
 
 export type HttpOptions = {
   cors?: string | false | CorsOptions;
+  requestId?: boolean;
   serverHeader?: string;
   maxBodyBytes?: number;
   bodyTimeout?: number | null;
@@ -275,6 +276,8 @@ export class Empilha {
 
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
+    if (options.requestId !== undefined)
+      this.http.setRequestIdEnabled(options.requestId);
     if (options.cors === false) this.http.disableCors();
     else if (typeof options.cors === "string")
       this.http.enableCors(options.cors);

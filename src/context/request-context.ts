@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
 import type { Container } from "../di/index";
 import type { QueryClient } from "../sql/postgres-executor";
+import { createRequestId } from "../http/request-id";
 
 /**
  * Estado contextual compartilhado durante uma requisição.
@@ -46,7 +46,7 @@ export function createRequestScope(
 
   const scope: RequestScope = {
     get requestId() {
-      return (requestId ??= randomUUID());
+      return (requestId ??= createRequestId());
     },
     request,
     container,

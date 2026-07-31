@@ -17,7 +17,7 @@ function convertQueryValue(
 }
 
 export function normalizeQueryParams(
-  value: Record<string, unknown>,
+  value: Readonly<Record<string, unknown>>,
   schema: TSchema,
   defaults?: Record<string, unknown>,
 ): Record<string, unknown> {

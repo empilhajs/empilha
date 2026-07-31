@@ -61,7 +61,7 @@ export class RouteHandlerBuilder {
     const getArgs = compileArgGetters(route, this.getPluginService);
     const createResponse = compileResponseFactory(
       route,
-      this.validateResponses(),
+      this.validateResponses,
     );
     const registeredSql = route.queryName
       ? this.queries.get(route.queryName)

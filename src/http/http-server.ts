@@ -2,6 +2,7 @@ import { abortRequestScope } from "../context/request-context";
 import { validateTimeout } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
 import { withTimeout } from "../utils/timeout";
+import { addRequestId } from "./request-id";
 
 type BunServer = ReturnType<typeof Bun.serve>;
 export type NativeRouteHandler = (
@@ -16,6 +17,7 @@ export type NativeRoutes = Record<string, NativeRouteValue>;
 export class HttpServer {
   private server: BunServer | null = null;
   private shutdownTimeoutMs: number | null = 15_000;
+  private requestIdEnabled = true;
 
   constructor(
     private readonly fetch: (request: Request) => Response | Promise<Response>,
@@ -33,6 +35,10 @@ export class HttpServer {
 
   setShutdownTimeout(milliseconds: number | null): void {
     this.shutdownTimeoutMs = validateTimeout(milliseconds, "shutdown");
+  }
+
+  setRequestIdEnabled(enabled: boolean): void {
+    this.requestIdEnabled = enabled;
   }
 
   async listen(port: number): Promise<void> {
@@ -78,10 +84,14 @@ export class HttpServer {
       try {
         const response = handler(request);
         if (response instanceof Promise) {
-          return response.finally(() => this.requests.leave());
+          return response
+            .then((value) =>
+              this.requestIdEnabled ? addRequestId(value) : value,
+            )
+            .finally(() => this.requests.leave());
         }
         this.requests.leave();
-        return response;
+        return this.requestIdEnabled ? addRequestId(response) : response;
       } catch (error) {
         this.requests.leave();
         throw error;

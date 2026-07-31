@@ -93,13 +93,13 @@ export type RequestContext<TBody = unknown> = {
   pathname: string;
   headers: Record<string, string>;
   /** Valores originais do path, sempre como texto. */
-  rawParams: Record<string, string>;
+  rawParams: Readonly<Record<string, string>>;
   /** Valores originais da query, antes de defaults, conversão e validação. */
-  rawQuery: Record<string, string | readonly string[]>;
+  rawQuery: Readonly<Record<string, string | readonly string[]>>;
   /** Valores de path disponíveis ao pipeline da rota. */
-  params: Record<string, string>;
+  params: Readonly<Record<string, string>>;
   /** Valores de query disponíveis ao pipeline, possivelmente normalizados. */
-  query: Record<string, unknown>;
+  query: Readonly<Record<string, unknown>>;
   body: TBody;
   result?: unknown;
 };

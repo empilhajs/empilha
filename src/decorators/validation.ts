@@ -23,6 +23,17 @@ export interface Validator {
   }>;
 }
 
+const compiledValidators = new WeakMap<TSchema, Validator>();
+
+function getCompiledValidator(schema: TSchema): Validator {
+  const cached = compiledValidators.get(schema);
+  if (cached) return cached;
+
+  const compiled = TypeCompiler.Compile(schema);
+  compiledValidators.set(schema, compiled);
+  return compiled;
+}
+
 /**
  * Compila um validator TypeBox ou compatível em uma função de runtime.
  *
@@ -39,7 +50,7 @@ export function compileValidator(
   const validator =
     "Check" in validatorOrSchema
       ? validatorOrSchema
-      : TypeCompiler.Compile(validatorOrSchema);
+      : getCompiledValidator(validatorOrSchema);
 
   return (value) => {
     if (!validator.Check(value)) {

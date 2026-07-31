@@ -61,13 +61,6 @@ export class ControllerRegistry {
       prepared.push(...this.prepareController(controller));
     }
 
-    this.deps.http.assertRoutesAvailable(
-      prepared.map((item) => ({
-        method: item.route.method,
-        path: item.fullPath,
-      })),
-    );
-
     for (const item of prepared) {
       this.deps.openApi.addRoute(
         item.context.controllerName,

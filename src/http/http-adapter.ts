@@ -35,6 +35,7 @@ import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
 import { ApplicationLogger, type Logger } from "../utils/logger";
 import { HttpServer, type NativeRouteValue } from "./http-server";
+import { addRequestId } from "./request-id";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -88,6 +89,8 @@ export class HttpAdapter {
 
   private requestConcurrency: number | null = null;
 
+  private requestIdEnabled = true;
+
   private requestScopeFactory: (() => Container) | undefined;
 
   private readonly requests = new RequestTracker();
@@ -124,6 +127,12 @@ export class HttpAdapter {
   /** Define o header `Server` aplicado pelo response writer. */
   setServerHeader(value: string): void {
     this.responses.setServerHeader(value);
+  }
+
+  /** Habilita ou desabilita o header automático `X-Request-Id`. */
+  setRequestIdEnabled(enabled: boolean): void {
+    this.requestIdEnabled = enabled;
+    this.server.setRequestIdEnabled(enabled);
   }
 
   /** Adiciona um middleware global ao pipeline completo. */
@@ -318,12 +327,17 @@ export class HttpAdapter {
       method: request.method,
       pathname,
       rawQuery,
-      query: minimalRequest ? EMPTY_STRING_RECORD : { ...rawQuery },
+      // QueryParams substitui `query` por um novo objeto quando normaliza a
+      // rota. Sem schema, o mapa bruto já é o mapa efetivo e não precisa de
+      // uma segunda cópia por request.
+      query: minimalRequest ? EMPTY_STRING_RECORD : rawQuery,
       headers: options.needsHeaders
         ? headersToRecord(request.headers)
         : EMPTY_STRING_RECORD,
       rawParams: params,
-      params: minimalRequest ? EMPTY_STRING_RECORD : { ...params },
+      // Params não sofre conversão no pipeline; compartilhar o mapa evita
+      // outra alocação sem compartilhar estado entre requisições dinâmicas.
+      params: minimalRequest ? EMPTY_STRING_RECORD : params,
       body: undefined,
     };
   }
@@ -454,13 +468,15 @@ export class HttpAdapter {
       const response = callback();
 
       if (isPromise(response)) {
-        return response.finally(() => {
-          this.requests.leave();
-        });
+        return response
+          .then((value) => this.withRequestId(value))
+          .finally(() => {
+            this.requests.leave();
+          });
       }
 
       this.requests.leave();
-      return response;
+      return this.withRequestId(response);
     } catch (error) {
       this.requests.leave();
       throw error;
@@ -492,23 +508,26 @@ export class HttpAdapter {
     try {
       const response = runWithRequestContext(scope, callback);
 
-      const addRequestId = (value: Response): Response => {
-        value.headers.set("X-Request-Id", scope.requestId);
-        return value;
+      const withScopeRequestId = (value: Response): Response => {
+        return this.withRequestId(value, scope.requestId);
       };
 
       if (isPromise(response)) {
         return response
-          .then(addRequestId)
+          .then(withScopeRequestId)
           .finally(() => this.requests.cleanupScope(scope));
       }
 
       this.requests.cleanupScope(scope);
-      return addRequestId(response);
+      return withScopeRequestId(response);
     } catch (error) {
       this.requests.cleanupScope(scope);
       throw error;
     }
+  }
+
+  private withRequestId(response: Response, requestId?: string): Response {
+    return this.requestIdEnabled ? addRequestId(response, requestId) : response;
   }
 
   private handleRequestInContext(

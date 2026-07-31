@@ -21,6 +21,42 @@ describe("HttpAdapter", () => {
     expect(scopesCreated).toBe(0);
   });
 
+  test("adiciona X-Request-Id no fallback sem scope", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    adapter.get("/request-id", () => ({ status: 200, body: "ok" }));
+
+    const response = await adapter.handleRequest(request("/request-id"));
+
+    expect(response.headers.get("x-request-id")).toMatch(
+      /^[0-9a-z]+-[0-9a-z]+-[0-9a-z]+$/,
+    );
+  });
+
+  test("permite desabilitar X-Request-Id no fallback e na rota nativa", async () => {
+    const fallback = new HttpAdapter();
+    fallback.setRequestIdEnabled(false);
+    fallback.get("/request-id", () => ({ status: 200, body: "ok" }));
+    expect(
+      (await fallback.handleRequest(request("/request-id"))).headers.get(
+        "x-request-id",
+      ),
+    ).toBeNull();
+
+    const native = new HttpAdapter();
+    native.setHandlerTimeout(null);
+    native.setRequestIdEnabled(false);
+    native.get("/request-id", () => ({ status: 200, body: "ok" }));
+    await native.listen(0);
+    try {
+      expect(
+        (await fetch(`${native.url}request-id`)).headers.get("x-request-id"),
+      ).toBeNull();
+    } finally {
+      await native.close();
+    }
+  });
+
   test("atende rota estática e dinâmica", async () => {
     const adapter = new HttpAdapter();
 
@@ -332,7 +368,11 @@ describe("HttpAdapter", () => {
     expect(closed).toBe(false);
 
     finish();
-    expect((await responsePromise).status).toBe(200);
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-request-id")).toMatch(
+      /^[0-9a-z]+-[0-9a-z]+-[0-9a-z]+$/,
+    );
     await closePromise;
     expect(closed).toBe(true);
   });
