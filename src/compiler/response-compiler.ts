@@ -2,6 +2,7 @@ import type { TSchema } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 import type { ServerResponse } from "../http/http-adapter";
 import { compileResponseSerializer } from "../http/response-serializer";
+import { ensureBuiltinFormats } from "../schema/formats";
 import type { RouteMetadata } from "../types";
 
 /**
@@ -51,6 +52,7 @@ function getCompiledSchema(schema: TSchema): CompiledResponseSchema {
     return cached;
   }
 
+  ensureBuiltinFormats();
   const validator = TypeCompiler.Compile(schema);
 
   const compiled: CompiledResponseSchema = {

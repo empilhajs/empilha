@@ -1,13 +1,8 @@
-import { FormatRegistry, type TSchema } from "@sinclair/typebox";
+import type { TSchema } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 import { ValidationError } from "../errors/index";
+import { ensureBuiltinFormats } from "../schema/formats";
 import type { ParameterValidator } from "../types";
-
-if (!FormatRegistry.Has("email")) {
-  FormatRegistry.Set("email", (value) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
-  );
-}
 
 /**
  * Contrato mínimo de validação usado pelos decorators.
@@ -29,6 +24,7 @@ function getCompiledValidator(schema: TSchema): Validator {
   const cached = compiledValidators.get(schema);
   if (cached) return cached;
 
+  ensureBuiltinFormats();
   const compiled = TypeCompiler.Compile(schema);
   compiledValidators.set(schema, compiled);
   return compiled;
