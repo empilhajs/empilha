@@ -276,6 +276,7 @@ export class Empilha {
 
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
+    this.assertConfiguring("configureHttp()");
     if (options.requestId !== undefined)
       this.http.setRequestIdEnabled(options.requestId);
     if (options.cors === false) this.http.disableCors();

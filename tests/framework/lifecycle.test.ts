@@ -111,6 +111,9 @@ describe("Empilha lifecycle", () => {
     expect(() => app.registerQuery("late", "SELECT 1")).toThrow(
       "fase configure",
     );
+    expect(() => app.configureHttp({ requestId: false })).toThrow(
+      "fase configure",
+    );
     expect(() => app.validate([Routes]).initialize([Routes])).toThrow(
       "fase configure",
     );
