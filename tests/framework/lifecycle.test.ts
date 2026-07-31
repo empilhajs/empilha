@@ -360,13 +360,18 @@ describe("Empilha lifecycle", () => {
 
   test("mantém o limite de concorrência em rotas nativas do Bun", async () => {
     let finish!: () => void;
+    let started!: () => void;
     const blocker = new Promise<void>((resolve) => {
       finish = resolve;
+    });
+    const handlerStarted = new Promise<void>((resolve) => {
+      started = resolve;
     });
 
     class NativeLimited {
       @Get("/")
       async get() {
+        started();
         await blocker;
         return { ok: true };
       }
@@ -391,7 +396,7 @@ describe("Empilha lifecycle", () => {
       const url = `http://localhost:${internals.http.port}/native-limit`;
 
       const first = fetch(url);
-      await Promise.resolve();
+      await handlerStarted;
       const rejected = await fetch(url);
 
       expect(rejected.status).toBe(503);
