@@ -75,6 +75,7 @@ export {
   definePlugin,
   type EmpilhaPlugin,
   type PluginContext,
+  type RegisterPluginService,
 } from "./application/plugin";
 export { testPostgres, type TestPostgres } from "./application/test-postgres";
 

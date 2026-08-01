@@ -353,7 +353,7 @@ export class Empilha {
     return this;
   }
 
-  registerPluginService(name: string, service: unknown): void {
+  registerPluginService<TService>(name: string, service: TService): void {
     this.assertConfiguring("registerPluginService()");
     if (this.pluginServices.has(name)) {
       throw new Error(`O serviço de plugin "${name}" já foi registrado.`);
