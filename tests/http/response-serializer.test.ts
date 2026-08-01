@@ -66,4 +66,12 @@ describe("response serializer", () => {
     expect(serialize(3)).toBe("3");
     expect(serializeObject({})).toBe("{}");
   });
+
+  test("não escolhe serializer quando oneOf casa com mais de um schema", () => {
+    const serialize = compileResponseSerializer({
+      oneOf: [t.Object({ a: t.String() }), t.Object({ b: t.String() })],
+    } as never);
+
+    expect(serialize({ a: "x", b: "y" })).toBe('{"a":"x","b":"y"}');
+  });
 });

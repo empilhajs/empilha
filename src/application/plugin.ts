@@ -9,6 +9,8 @@ export type PluginContext = Pick<
   | "useMiddleware"
   | "registerPluginService"
   | "registerQuery"
+  | "auth"
+  | "postgres"
 > & {
   readonly http: Empilha["http"];
 };

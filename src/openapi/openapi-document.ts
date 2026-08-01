@@ -94,11 +94,6 @@ export type OpenApiOptions = {
   version?: string;
 };
 
-export type OpenApiRoutesSnapshot = {
-  paths: OpenApiDocument["paths"];
-  hasBearerAuthentication: boolean;
-};
-
 function schemaForParameter(parameter: ParameterMetadata): OpenApiSchema {
   if (parameter.schema) {
     return parameter.schema;
@@ -360,6 +355,11 @@ export class OpenApiDocumentBuilder {
 
   private hasBearerAuthentication = false;
 
+  private routeTransaction: {
+    paths: Map<string, OpenApiDocument["paths"][string] | undefined>;
+    hasBearerAuthentication: boolean;
+  } | null = null;
+
   private info: Required<OpenApiOptions> = {
     title: "Empilha API",
     version: "1.0.0",
@@ -373,24 +373,30 @@ export class OpenApiDocumentBuilder {
     };
   }
 
-  /** Captura as rotas para permitir rollback durante o bootstrap. */
-  snapshotRoutes(): OpenApiRoutesSnapshot {
-    const paths = Object.create(null) as OpenApiDocument["paths"];
-    for (const [path, item] of Object.entries(this.paths)) {
-      paths[path] = { ...item };
+  beginRouteTransaction(): void {
+    if (this.routeTransaction !== null) {
+      throw new Error("Já existe uma transação OpenAPI ativa.");
     }
-
-    return {
-      paths,
+    this.routeTransaction = {
+      paths: new Map(),
       hasBearerAuthentication: this.hasBearerAuthentication,
     };
   }
 
-  /** Restaura as rotas após uma falha no bootstrap. */
-  restoreRoutes(snapshot: OpenApiRoutesSnapshot): void {
-    for (const path of Object.keys(this.paths)) delete this.paths[path];
-    Object.assign(this.paths, snapshot.paths);
-    this.hasBearerAuthentication = snapshot.hasBearerAuthentication;
+  commitRouteTransaction(): void {
+    this.routeTransaction = null;
+  }
+
+  rollbackRouteTransaction(): void {
+    const transaction = this.routeTransaction;
+    this.routeTransaction = null;
+    if (!transaction) return;
+
+    for (const [path, previous] of transaction.paths) {
+      if (previous === undefined) delete this.paths[path];
+      else this.paths[path] = previous;
+    }
+    this.hasBearerAuthentication = transaction.hasBearerAuthentication;
   }
 
   /**
@@ -408,6 +414,15 @@ export class OpenApiDocumentBuilder {
   ): void {
     const documentPath = openApiPath(path);
     const pathItem = this.paths[documentPath] ?? {};
+    if (
+      this.routeTransaction &&
+      !this.routeTransaction.paths.has(documentPath)
+    ) {
+      this.routeTransaction.paths.set(
+        documentPath,
+        this.paths[documentPath] ? { ...this.paths[documentPath] } : undefined,
+      );
+    }
     const parameters = parametersForRoute(route, path);
     const status = statusCode(route);
 

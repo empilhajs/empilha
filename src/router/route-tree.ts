@@ -155,74 +155,40 @@ export class RouteTree<THandler extends Handler = Handler> {
     RouteMatch<THandler>
   >;
 
-  /** Valida várias inserções sem alterar a árvore atual. */
+  private transactionRoutes: Array<{ method: string; path: string }> | null =
+    null;
+
+  /** Valida várias inserções sem clonar a árvore atual. */
   assertCanInsert(routes: readonly { method: string; path: string }[]): void {
-    const copy = this.clone();
-    const placeholder = (() => undefined) as THandler;
-
     for (const route of routes) {
-      copy.insert(route.method, route.path, placeholder);
+      if (this.find(route.method, route.path) !== null) {
+        throw new Error(`Rota já registrada: ${route.method} ${route.path}`);
+      }
     }
   }
 
-  /** Captura o estado atual para permitir rollback de um registro parcial. */
-  snapshot(): RouteTree<THandler> {
-    return this.clone();
-  }
-
-  /** Restaura um snapshot previamente capturado. */
-  restore(snapshot: RouteTree<THandler>): void {
-    this.restoreFrom(snapshot.clone());
-  }
-
-  /**
-   * Restaura um snapshot transferindo sua árvore, sem um segundo clone.
-   * O snapshot é consumido e não deve ser reutilizado depois desta chamada.
-   */
-  restoreAndConsume(snapshot: RouteTree<THandler>): void {
-    this.restoreFrom(snapshot);
-    snapshot.root = createNode<THandler>();
-    snapshot.staticHandlers = Object.create(null) as Record<
-      string,
-      RouteMatch<THandler>
-    >;
-  }
-
-  private restoreFrom(restored: RouteTree<THandler>): void {
-    this.root = restored.root;
-
-    for (const key of Object.keys(this.staticHandlers)) {
-      delete this.staticHandlers[key];
+  /** Inicia uma transação para desfazer inserções parciais sem copiar a árvore. */
+  beginTransaction(): void {
+    if (this.transactionRoutes !== null) {
+      throw new Error("Já existe uma transação de rotas ativa.");
     }
-    this.staticHandlers = restored.staticHandlers;
+    this.transactionRoutes = [];
   }
 
-  private clone(): RouteTree<THandler> {
-    const copy = new RouteTree<THandler>();
+  /** Confirma as inserções realizadas na transação atual. */
+  commitTransaction(): void {
+    this.transactionRoutes = null;
+  }
 
-    const cloneNode = (node: RouteNode<THandler>): RouteNode<THandler> => ({
-      handlers: new Map(node.handlers),
-      staticChildren: new Map(
-        [...node.staticChildren].map(([segment, child]) => [
-          segment,
-          cloneNode(child),
-        ]),
-      ),
-      paramChild: node.paramChild
-        ? {
-            name: node.paramChild.name,
-            node: cloneNode(node.paramChild.node),
-          }
-        : null,
-    });
+  /** Desfaz as inserções realizadas na transação atual. */
+  rollbackTransaction(): void {
+    const routes = this.transactionRoutes;
+    this.transactionRoutes = null;
+    if (!routes) return;
 
-    Object.assign(copy.root, cloneNode(this.root));
-    copy.patternRoutes = this.patternRoutes.map((route) => ({
-      ...route,
-      segments: [...route.segments],
-    }));
-    Object.assign(copy.staticHandlers, this.staticHandlers);
-    return copy;
+    for (let index = routes.length - 1; index >= 0; index--) {
+      this.remove(routes[index].method, routes[index].path);
+    }
   }
 
   /**
@@ -299,6 +265,10 @@ export class RouteTree<THandler extends Handler = Handler> {
         segments: patternSegments,
         handler,
       });
+      this.transactionRoutes?.push({
+        method: normalizedMethod,
+        path: normalizedPath,
+      });
       return;
     }
 
@@ -355,6 +325,78 @@ export class RouteTree<THandler extends Handler = Handler> {
           handler,
           params: EMPTY_STRING_RECORD,
         });
+    }
+
+    this.transactionRoutes?.push({
+      method: normalizedMethod,
+      path: normalizedPath,
+    });
+  }
+
+  private remove(method: string, path: string): void {
+    const normalizedMethod = normalizeMethod(method);
+    const normalizedPath = normalizePath(path);
+    const segments = splitPath(normalizedPath);
+    const patternSegments: PatternSegment[] = segments.map((segment) => {
+      if (segment.startsWith("*")) {
+        return { kind: "wildcard", name: segment.slice(1) };
+      }
+      const match = segment.match(/^:([A-Za-z_]\w*)(?:<(.+)>)?(\?)?$/);
+      if (match) {
+        return {
+          kind: "param",
+          name: match[1],
+          expression: match[2] ? new RegExp(`^(?:${match[2]})$`) : undefined,
+          optional: match[3] === "?",
+        };
+      }
+      return { kind: "static", value: segment };
+    });
+    const hasPattern = patternSegments.some(
+      (segment) =>
+        segment.kind === "wildcard" ||
+        (segment.kind === "param" &&
+          (segment.optional || segment.expression !== undefined)),
+    );
+
+    if (hasPattern) {
+      const index = this.patternRoutes.findIndex(
+        (route) =>
+          route.method === normalizedMethod &&
+          samePattern(route.segments, patternSegments),
+      );
+      if (index >= 0) this.patternRoutes.splice(index, 1);
+      return;
+    }
+
+    const nodes: Array<{ node: RouteNode<THandler>; segment: string }> = [];
+    let current = this.root;
+    for (const segment of segments) {
+      const paramMatch = segment.match(paramRegex);
+      const next = paramMatch
+        ? current.paramChild?.node
+        : current.staticChildren.get(segment);
+      if (!next) return;
+      nodes.push({ node: current, segment });
+      current = next;
+    }
+
+    current.handlers.delete(normalizedMethod);
+    delete this.staticHandlers[`${normalizedMethod} ${normalizedPath}`];
+
+    for (let index = nodes.length - 1; index >= 0; index--) {
+      const parent = nodes[index].node;
+      const segment = nodes[index].segment;
+      if (
+        current.handlers.size ||
+        current.staticChildren.size ||
+        current.paramChild
+      ) {
+        break;
+      }
+      if (segment.match(paramRegex)) parent.paramChild = null;
+      else parent.staticChildren.delete(segment);
+      current = parent;
     }
   }
 

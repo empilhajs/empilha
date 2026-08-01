@@ -185,14 +185,16 @@ export class HttpAdapter {
     this.router.assertCanInsert(routes);
   }
 
-  /** Captura o registro de rotas para rollback durante o bootstrap. */
-  snapshotRoutes(): RouteTree<ServerHandler> {
-    return this.router.snapshot();
+  beginRouteTransaction(): void {
+    this.router.beginTransaction();
   }
 
-  /** Restaura o registro de rotas após uma falha no bootstrap. */
-  restoreRoutes(snapshot: RouteTree<ServerHandler>): void {
-    this.router.restoreAndConsume(snapshot);
+  commitRouteTransaction(): void {
+    this.router.commitTransaction();
+  }
+
+  rollbackRouteTransaction(): void {
+    this.router.rollbackTransaction();
   }
 
   /** Habilita CORS no adapter e configura o preflight. */

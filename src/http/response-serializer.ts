@@ -140,10 +140,11 @@ function compileObject(
 
 function matchesSchema(value: unknown, schema: TSchema): boolean {
   const node = schema as SchemaNode;
-  if (node.anyOf || node.oneOf) {
-    return (node.anyOf ?? node.oneOf ?? []).some((item) =>
-      matchesSchema(value, item),
-    );
+  if (node.anyOf) {
+    return node.anyOf.some((item) => matchesSchema(value, item));
+  }
+  if (node.oneOf) {
+    return node.oneOf.filter((item) => matchesSchema(value, item)).length === 1;
   }
 
   switch (node.type) {
@@ -169,17 +170,23 @@ function matchesSchema(value: unknown, schema: TSchema): boolean {
   }
 }
 
-function compileUnion(schemas: TSchema[] | undefined): Serializer | null {
+function compileUnion(
+  schemas: TSchema[] | undefined,
+  mode: "anyOf" | "oneOf",
+): Serializer | null {
   if (!schemas?.length) return null;
   const compiled = schemas.map((schema) => compile(schema));
   if (compiled.some((serializer) => !serializer)) return null;
 
   return (value) => {
-    for (let index = 0; index < compiled.length; index++) {
-      if (matchesSchema(value, schemas[index])) {
-        return (compiled[index] as Serializer)(value);
-      }
+    const matches = schemas.flatMap((schema, index) =>
+      matchesSchema(value, schema) ? [index] : [],
+    );
+    if (mode === "oneOf") {
+      if (matches.length !== 1) return serializeJson(value);
+      return (compiled[matches[0]] as Serializer)(value);
     }
+    if (matches.length > 0) return (compiled[matches[0]] as Serializer)(value);
     return serializeJson(value);
   };
 }
@@ -202,7 +209,9 @@ function compile(schema: TSchema | undefined): Serializer | null {
 
   const node = schema as SchemaNode;
 
-  const union = compileUnion(node.anyOf ?? node.oneOf);
+  const union = node.anyOf
+    ? compileUnion(node.anyOf, "anyOf")
+    : compileUnion(node.oneOf, "oneOf");
   if (union) return union;
 
   switch (node.type) {

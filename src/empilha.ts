@@ -468,8 +468,8 @@ export class Empilha {
       );
     }
 
-    const httpSnapshot = this.http.snapshotRoutes();
-    const openApiSnapshot = this.openApiDocument.snapshotRoutes();
+    this.http.beginRouteTransaction();
+    this.openApiDocument.beginRouteTransaction();
 
     this.lifecycle.initialize(() => {
       try {
@@ -477,10 +477,12 @@ export class Empilha {
         this.healthChecks.registerRoute(this.http);
         this.controllersRegistered = true;
         for (const hook of this.afterInitializeHooks) hook(controllers);
+        this.http.commitRouteTransaction();
+        this.openApiDocument.commitRouteTransaction();
       } catch (error) {
         this.controllersRegistered = false;
-        this.http.restoreRoutes(httpSnapshot);
-        this.openApiDocument.restoreRoutes(openApiSnapshot);
+        this.http.rollbackRouteTransaction();
+        this.openApiDocument.rollbackRouteTransaction();
         throw error;
       }
     });
