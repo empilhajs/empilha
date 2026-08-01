@@ -19,11 +19,10 @@ const app = new Empilha()
 ```
 
 `timeout` configura `query_timeout` e `statement_timeout` no `pg`, além do
-`timeout` das operações do Empilha. O adapter não envia um objeto de opções
-como terceiro argumento para `pool.query()`: no `pg`, essa posição pode ser
-interpretada como callback e causar `cb is not a function`.
+`timeout` das operações do Empilha. O plugin executa as queries por um client
+dedicado para que o `AbortSignal` também possa cancelar uma query em andamento
+no PostgreSQL.
 
-O `AbortSignal` do Empilha limita a operação no framework. O encerramento da
-query no PostgreSQL é garantido pelos timeouts do `pg`; para manter esse limite
-em produção, configure um `timeout` finito ou defina explicitamente
-`query_timeout` e `statement_timeout` nas opções do pool.
+Se a aplicação fornecer um runner próprio, o método `query()` deve observar o
+`options.signal`. Um runner que ignora o sinal ainda pode continuar executando
+até o próprio timeout do driver, mesmo depois de a requisição receber `504`.

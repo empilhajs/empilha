@@ -22,7 +22,7 @@ function collectSQLFiles(dir: string): string[] {
 }
 
 const names = new Set<string>();
-const blockPattern = /^--\s*(\w+)\s*$/gm;
+const blockPattern = /^--\s*@query\s+(\w+)\s*$/gm;
 
 for (const file of collectSQLFiles(inputDir)) {
   const content = fs.readFileSync(file, "utf8");
