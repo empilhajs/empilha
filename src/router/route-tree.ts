@@ -38,6 +38,41 @@ interface RouteNode<THandler extends Handler> {
   paramChild: ParamChild<THandler> | null;
 }
 
+type PatternSegment =
+  | { kind: "static"; value: string }
+  | { kind: "param"; name: string; expression?: RegExp; optional: boolean }
+  | { kind: "wildcard"; name: string };
+
+type PatternRoute<THandler extends Handler> = {
+  method: string;
+  segments: PatternSegment[];
+  handler: THandler;
+};
+
+function samePattern(
+  first: PatternSegment[],
+  second: PatternSegment[],
+): boolean {
+  if (first.length !== second.length) return false;
+
+  return first.every((left, index) => {
+    const right = second[index];
+    if (left.kind !== right.kind) return false;
+    if (left.kind === "static" && right.kind === "static") {
+      return left.value === right.value;
+    }
+    if (left.kind === "wildcard" && right.kind === "wildcard") {
+      return left.name === right.name;
+    }
+    if (left.kind !== "param" || right.kind !== "param") return false;
+    return (
+      left.name === right.name &&
+      left.optional === right.optional &&
+      left.expression?.source === right.expression?.source
+    );
+  });
+}
+
 /**
  * Cria um novo nó vazio para a árvore de rotas.
  *
@@ -108,6 +143,8 @@ export class RouteTree<THandler extends Handler = Handler> {
    * Nó inicial da árvore.
    */
   private root = createNode<THandler>();
+
+  private patternRoutes: PatternRoute<THandler>[] = [];
 
   /**
    * Índice medido para rotas totalmente estáticas.
@@ -180,6 +217,10 @@ export class RouteTree<THandler extends Handler = Handler> {
     });
 
     Object.assign(copy.root, cloneNode(this.root));
+    copy.patternRoutes = this.patternRoutes.map((route) => ({
+      ...route,
+      segments: [...route.segments],
+    }));
     Object.assign(copy.staticHandlers, this.staticHandlers);
     return copy;
   }
@@ -206,6 +247,60 @@ export class RouteTree<THandler extends Handler = Handler> {
     const normalizedMethod = normalizeMethod(method);
     const normalizedPath = normalizePath(path);
     const segments = splitPath(normalizedPath);
+
+    const patternSegments = segments.map((segment): PatternSegment => {
+      if (segment.startsWith("*")) {
+        if (!/^\*[A-Za-z_]\w*$/.test(segment)) {
+          throw new Error(
+            `Wildcard inválido "${segment}" na rota "${normalizedPath}".`,
+          );
+        }
+        return { kind: "wildcard", name: segment.slice(1) };
+      }
+
+      const match = segment.match(/^:([A-Za-z_]\w*)(?:<(.+)>)?(\?)?$/);
+      if (match) {
+        return {
+          kind: "param",
+          name: match[1],
+          expression: match[2] ? new RegExp(`^(?:${match[2]})$`) : undefined,
+          optional: match[3] === "?",
+        };
+      }
+
+      if (segment.startsWith(":") || segment.includes("*")) {
+        throw new Error(
+          `Parâmetro inválido "${segment}" na rota "${normalizedPath}".`,
+        );
+      }
+      return { kind: "static", value: segment };
+    });
+
+    const hasPattern = patternSegments.some(
+      (segment) =>
+        segment.kind === "wildcard" ||
+        (segment.kind === "param" &&
+          (segment.optional || segment.expression !== undefined)),
+    );
+    if (hasPattern) {
+      if (
+        this.patternRoutes.some(
+          (route) =>
+            route.method === normalizedMethod &&
+            samePattern(route.segments, patternSegments),
+        )
+      ) {
+        throw new Error(
+          `Rota duplicada: ${normalizedMethod} ${normalizedPath}`,
+        );
+      }
+      this.patternRoutes.push({
+        method: normalizedMethod,
+        segments: patternSegments,
+        handler,
+      });
+      return;
+    }
 
     let current = this.root;
 
@@ -393,6 +488,71 @@ export class RouteTree<THandler extends Handler = Handler> {
       }
     }
 
+    for (const route of this.patternRoutes) {
+      if (
+        route.method !== normalizedMethod &&
+        !(normalizedMethod === "HEAD" && route.method === "GET")
+      )
+        continue;
+      const patternParams = createStringRecord();
+      let pathIndex = 0;
+      let matched = true;
+
+      for (
+        let routeIndex = 0;
+        routeIndex < route.segments.length;
+        routeIndex++
+      ) {
+        const pattern = route.segments[routeIndex];
+        if (pattern.kind === "wildcard") {
+          patternParams[pattern.name] = segments
+            .slice(pathIndex)
+            .map((segment) => decodePathSegment(segment, normalizedPath))
+            .join("/");
+          pathIndex = segments.length;
+          break;
+        }
+
+        const segment = segments[pathIndex];
+        if (segment === undefined) {
+          if (pattern.kind === "param" && pattern.optional) continue;
+          matched = false;
+          break;
+        }
+        if (pattern.kind === "static" && segment !== pattern.value) {
+          matched = false;
+          break;
+        }
+        if (pattern.kind === "param") {
+          const decoded = decodePathSegment(segment, normalizedPath);
+          if (pattern.expression && !pattern.expression.test(decoded)) {
+            matched = false;
+            break;
+          }
+          patternParams[pattern.name] = decoded;
+        }
+        pathIndex++;
+      }
+
+      if (matched && pathIndex === segments.length) {
+        return { handler: route.handler, params: patternParams };
+      }
+    }
+
     return null;
+  }
+
+  /** Retorna os métodos registrados que correspondem ao caminho. */
+  allowedMethods(path: string): string[] {
+    const methods = [
+      "GET",
+      "HEAD",
+      "OPTIONS",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+    ];
+    return methods.filter((method) => this.find(method, path) !== null);
   }
 }

@@ -115,4 +115,43 @@ describe("RouteTree", () => {
       router.insert("GET", "/users/:name", () => "again");
     }).toThrow("Rota duplicada");
   });
+
+  test("suporta wildcard, parâmetro opcional e expressão regular", () => {
+    const router = new RouteTree();
+    const wildcard = () => "wildcard";
+    const optional = () => "optional";
+    const numeric = () => "numeric";
+
+    router.insert("GET", "/assets/*path", wildcard);
+    router.insert("GET", "/users/:id?", optional);
+    router.insert("GET", "/orders/:id<[0-9]+>", numeric);
+
+    expect(router.find("GET", "/assets/css/app.css")).toMatchObject({
+      handler: wildcard,
+      params: { path: "css/app.css" },
+    });
+    expect(router.find("GET", "/users")?.handler).toBe(optional);
+    expect(router.find("GET", "/orders/42")?.handler).toBe(numeric);
+    expect(router.find("GET", "/orders/abc")).toBeNull();
+  });
+
+  test("distingue expressões regulares diferentes na mesma posição", () => {
+    const router = new RouteTree();
+    const numeric = () => "numeric";
+    const alphabetic = () => "alphabetic";
+
+    router.insert("GET", "/value/:id<[0-9]+>", numeric);
+    router.insert("GET", "/value/:id<[a-z]+>", alphabetic);
+
+    expect(router.find("GET", "/value/42")?.handler).toBe(numeric);
+    expect(router.find("GET", "/value/abc")?.handler).toBe(alphabetic);
+  });
+
+  test("lista métodos permitidos para um caminho", () => {
+    const router = new RouteTree();
+    router.insert("GET", "/users", () => "get");
+    router.insert("POST", "/users", () => "post");
+
+    expect(router.allowedMethods("/users")).toEqual(["GET", "HEAD", "POST"]);
+  });
 });
