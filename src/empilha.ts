@@ -93,7 +93,9 @@ export type EmpilhaRuntimeConfig = {
   };
 };
 
-export type ControllerConstructor = abstract new (...args: never[]) => object;
+export type ControllerConstructor<TInstance extends object = object> = new (
+  ...args: never[]
+) => TInstance;
 
 type LifecycleHook = (controllers: readonly ControllerConstructor[]) => void;
 type StartHook = () => void | Promise<void>;

@@ -1,6 +1,7 @@
 export {
   Empilha,
   createTestApp,
+  type ControllerConstructor,
   type ManagedPostgresPool,
   type PostgresOptions,
   type HttpOptions,

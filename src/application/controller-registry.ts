@@ -17,7 +17,9 @@ import {
   type ControllerRegistrationContext,
 } from "./route-handler-builder";
 
-export type ControllerConstructor = abstract new (...args: never[]) => object;
+export type ControllerConstructor<TInstance extends object = object> = new (
+  ...args: never[]
+) => TInstance;
 
 type ErrorHandler = (
   error: unknown,

@@ -106,6 +106,14 @@ export type RequestContext<TBody = unknown> = {
   result?: unknown;
 };
 
-export type Infer<T extends TSchema, P extends unknown[] = []> = Static<T> & {
-  params: P;
-};
+/**
+ * Infere o valor de um schema TypeBox.
+ *
+ * O parâmetro de rota é opcional para que `Infer<typeof Schema>` represente
+ * apenas o payload do schema. A forma com `P` continua disponível para APIs
+ * que precisam carregar parâmetros junto do valor inferido.
+ */
+export type Infer<
+  T extends TSchema,
+  P extends unknown[] | undefined = undefined,
+> = Static<T> & ([P] extends [undefined] ? unknown : { params: P });
