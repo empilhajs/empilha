@@ -144,6 +144,32 @@ describe("Empilha SQL", () => {
     expect(argumentsReceived).toEqual([["BEGIN", undefined]]);
   });
 
+  test("encaminha opções para pools que oferecem cancelamento nativo", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const pool = {
+      query: async () => ({ rows: [] }),
+      queryWithOptions: async (
+        _sql: string,
+        _params?: unknown[],
+        options?: { signal?: AbortSignal },
+      ) => {
+        receivedSignal = options?.signal;
+        return { rows: [] };
+      },
+      connect: async () => ({
+        query: async () => ({ rows: [] }),
+        release: () => {},
+      }),
+    };
+
+    await postgresRunner(pool).queryWithOptions?.("SELECT 1", [], {
+      signal: controller.signal,
+    });
+
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
   test("executa BeforeSql antes de resolver bindings da query", async () => {
     const received: unknown[][] = [];
 

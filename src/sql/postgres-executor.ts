@@ -23,6 +23,13 @@ export type QueryClient = {
   ): Promise<QueryResult>;
 
   release(): void;
+
+  /** Caminho opcional específico do driver que respeita o AbortSignal. */
+  queryWithOptions?(
+    sql: string,
+    params?: unknown[],
+    options?: QueryExecutionOptions,
+  ): Promise<QueryResult>;
 };
 
 /**
@@ -39,12 +46,23 @@ export type PostgresQueryRunner = {
   ): Promise<QueryResult>;
 
   connect?(): Promise<QueryClient>;
+  queryWithOptions?(
+    sql: string,
+    params?: unknown[],
+    options?: QueryExecutionOptions,
+  ): Promise<QueryResult>;
 };
 
 /** Contrato estrutural de pools como o `pg.Pool`. */
 export type PostgresPool = {
   query(sql: string, params?: unknown[]): Promise<QueryResult>;
   connect(): Promise<QueryClient>;
+  /** Caminho opcional específico do driver que respeita o AbortSignal. */
+  queryWithOptions?(
+    sql: string,
+    params?: unknown[],
+    options?: QueryExecutionOptions,
+  ): Promise<QueryResult>;
 };
 
 /** Pool PostgreSQL que pode ser encerrado pelo ciclo de vida da aplicação. */
@@ -64,13 +82,21 @@ export function postgresRunner(pool: PostgresPool): PostgresQueryRunner {
     const client = await pool.connect();
 
     return {
-      query: (sql, params) => client.query(sql, params),
+      query: (sql, params, options) =>
+        client.queryWithOptions
+          ? client.queryWithOptions(sql, params, options)
+          : client.query(sql, params),
+      queryWithOptions: client.queryWithOptions,
       release: () => client.release(),
     };
   };
 
   return {
-    query: (sql, params) => pool.query(sql, params),
+    query: (sql, params, options) =>
+      pool.queryWithOptions
+        ? pool.queryWithOptions(sql, params, options)
+        : pool.query(sql, params),
+    queryWithOptions: pool.queryWithOptions,
     connect: wrapClient,
   };
 }

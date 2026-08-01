@@ -1,4 +1,4 @@
-import { assertSqlBinding } from "../sql";
+import { assertSqlBinding, compileNamedSQL } from "../sql";
 import type { RegisteredRouteMetadata } from "../types";
 
 export type RequestDataSource =
@@ -9,13 +9,10 @@ export type RequestDataSource =
   | "auth"
   | "identity";
 
-const SQL_SOURCE_REGEX =
-  /(?<!:):((?:body|param|query|header|auth|identity)\.)/g;
-
 export function collectSqlSources(sql: string): Set<RequestDataSource> {
   const sources = new Set<RequestDataSource>();
-  for (const match of sql.matchAll(SQL_SOURCE_REGEX)) {
-    sources.add(match[1].slice(0, -1) as RequestDataSource);
+  for (const binding of compileNamedSQL(sql).bindings) {
+    sources.add(binding.split(".", 1)[0] as RequestDataSource);
   }
   return sources;
 }

@@ -55,28 +55,38 @@ function ensureDatabase(connectionString: string): void {
 
   const databaseLiteral = parts.database.replaceAll("'", "''");
   const databaseIdentifier = parts.database.replaceAll('"', '""');
-  const check = Bun.spawnSync({
-    cmd: [
+  const exists = () => {
+    const check = Bun.spawnSync({
+      cmd: [
+        "psql",
+        parts.maintenanceUrl,
+        "-tAc",
+        `SELECT 1 FROM pg_database WHERE datname = '${databaseLiteral}'`,
+      ],
+      stdout: "pipe",
+      stderr: "inherit",
+    });
+    if (check.exitCode !== 0)
+      throw new Error("Não foi possível conectar ao banco postgres.");
+    return new TextDecoder().decode(check.stdout).trim() === "1";
+  };
+
+  if (exists()) return;
+
+  try {
+    run([
       "psql",
       parts.maintenanceUrl,
-      "-tAc",
-      `SELECT 1 FROM pg_database WHERE datname = '${databaseLiteral}'`,
-    ],
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-  if (check.exitCode !== 0)
-    throw new Error("Não foi possível conectar ao banco postgres.");
-  if (new TextDecoder().decode(check.stdout).trim() === "1") return;
-
-  run([
-    "psql",
-    parts.maintenanceUrl,
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-c",
-    `CREATE DATABASE "${databaseIdentifier}"`,
-  ]);
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      `CREATE DATABASE "${databaseIdentifier}"`,
+    ]);
+  } catch (error) {
+    // Dois processos podem observar o banco como inexistente ao mesmo tempo.
+    if (exists()) return;
+    throw error;
+  }
   console.log(`Banco ${parts.database} criado.`);
 }
 
@@ -104,11 +114,11 @@ export function migrationScript(migrations: readonly Migration[]): string {
       `SELECT CASE\n  WHEN NOT EXISTS (SELECT 1 FROM empilha_migrations WHERE name = ${name}) THEN 'true'\n  ELSE 'false'\nEND AS apply_migration;`,
       "\\gset",
       "\\if :apply_migration",
-      `\\echo Executando ${migration.name}`,
+      "\\echo Executando migration",
       `\\i ${psqlFileName(migration.file)}`,
       `INSERT INTO empilha_migrations (name, checksum) VALUES (${name}, ${digest});`,
       "\\else",
-      `\\echo Já aplicada: ${migration.name}`,
+      "\\echo Migration já aplicada",
       "\\endif",
     ];
   });
