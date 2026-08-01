@@ -5,6 +5,7 @@ import type {
   RouteRequest,
 } from "../types";
 import { requestContext } from "../context/index";
+import { ValidationError } from "../errors/index";
 
 /**
  * Obtém o valor de um argumento a partir
@@ -130,9 +131,16 @@ function prepareParameters(route: RouteMetadata): ParameterMetadata[] {
 function convertParameterValue(
   value: unknown,
   type: Function | undefined,
+  path: string,
 ): unknown {
   if (type === Number) {
-    return value == null ? undefined : Number(value);
+    if (value == null) return undefined;
+    if (value === "" || Number.isNaN(Number(value))) {
+      throw new ValidationError([
+        { path, message: "Expected a valid number." },
+      ]);
+    }
+    return Number(value);
   }
 
   if (type === Boolean) {
@@ -215,7 +223,11 @@ function compileArgumentGetter(
   return (request) => {
     const rawValue = readParameterValue(request, parameter, resolvePlugin);
 
-    const value = convertParameterValue(rawValue, parameter.type);
+    const value = convertParameterValue(
+      rawValue,
+      parameter.type,
+      parameter.name ?? String(parameter.index),
+    );
 
     validate?.(value);
 

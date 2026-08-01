@@ -14,7 +14,7 @@ import type {
   RoleHierarchy,
 } from "./runtime";
 import { createTestClient, type TestClient } from "./application/test-client";
-import { isEmpilhaPlugin, type EmpilhaPlugin } from "./application/plugin";
+import { type EmpilhaPlugin, type PluginContext } from "./application/plugin";
 import { ControllerRegistry } from "./application/controller-registry";
 import { ControllerBootstrap } from "./application/controller-bootstrap";
 import { RouteHandlerBuilder } from "./application/route-handler-builder";
@@ -40,6 +40,10 @@ import { ApplicationRunner } from "./application/application-runner";
 import type { HealthCheckOptions } from "./application/health-checks";
 import { validateTimeout } from "./http/adapter-helpers";
 import type { Logger } from "./utils/logger";
+import type {
+  CorsOptions as AdapterCorsOptions,
+  HttpOptions as AdapterHttpOptions,
+} from "./http/adapter-types";
 
 export type {
   ManagedPostgresPool,
@@ -55,25 +59,11 @@ export type PostgresOptions = {
   close?: boolean;
 };
 
-export type HttpOptions = {
-  cors?: string | false | CorsOptions;
-  requestId?: boolean;
-  serverHeader?: string;
-  maxBodyBytes?: number;
-  bodyTimeout?: number | null;
-  handlerTimeout?: number | null;
-  maxConcurrentRequests?: number | null;
-  shutdownTimeout?: number | null;
+export type HttpOptions = AdapterHttpOptions & {
   disposalTimeout?: number | null;
 };
 
-export type CorsOptions = {
-  origin: string;
-  methods?: string;
-  headers?: string;
-  credentials?: boolean;
-  maxAge?: number;
-};
+export type CorsOptions = AdapterCorsOptions;
 
 export type { HealthCheckOptions } from "./application/health-checks";
 
@@ -223,8 +213,9 @@ export class Empilha {
     if (config.health !== undefined) this.configureHealthChecks(config.health);
     if (config.openapi !== undefined && config.openapi !== false)
       this.openapi(config.openapi);
-    for (const middleware of config.middleware ?? []) this.use(middleware);
-    for (const plugin of config.plugins ?? []) this.use(plugin);
+    for (const middleware of config.middleware ?? [])
+      this.useMiddleware(middleware);
+    for (const plugin of config.plugins ?? []) this.usePlugin(plugin);
     if (config.auth?.hierarchy !== undefined)
       this.authHierarchy(config.auth.hierarchy);
     if (config.backgroundJobs !== undefined)
@@ -233,7 +224,7 @@ export class Empilha {
       this.onBackgroundError(config.onBackgroundError);
     if (config.validation?.responses !== undefined)
       this.validateResponseSchemas(config.validation.responses);
-    if (config.logging?.requests) this.use(requestLogger());
+    if (config.logging?.requests) this.useMiddleware(requestLogger());
     if (config.logging?.logger) this.logger(config.logging.logger);
 
     return this;
@@ -277,32 +268,7 @@ export class Empilha {
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
     this.assertConfiguring("configureHttp()");
-    if (options.requestId !== undefined)
-      this.http.setRequestIdEnabled(options.requestId);
-    if (options.cors === false) this.http.disableCors();
-    else if (typeof options.cors === "string")
-      this.http.enableCors(options.cors);
-    else if (options.cors !== undefined) {
-      this.http.enableCors(
-        options.cors.origin,
-        options.cors.methods,
-        options.cors.headers,
-        options.cors.credentials,
-        options.cors.maxAge,
-      );
-    }
-    if (options.serverHeader !== undefined)
-      this.http.setServerHeader(options.serverHeader);
-    if (options.maxBodyBytes !== undefined)
-      this.http.setMaxBodyBytes(options.maxBodyBytes);
-    if (options.bodyTimeout !== undefined)
-      this.http.setBodyTimeout(options.bodyTimeout);
-    if (options.handlerTimeout !== undefined)
-      this.http.setHandlerTimeout(options.handlerTimeout);
-    if (options.maxConcurrentRequests !== undefined)
-      this.http.setRequestConcurrency(options.maxConcurrentRequests);
-    if (options.shutdownTimeout !== undefined)
-      this.http.setShutdownTimeout(options.shutdownTimeout);
+    this.http.configure(options);
     if (options.disposalTimeout !== undefined)
       this.disposalTimeoutMs = validateTimeout(
         options.disposalTimeout,
@@ -373,14 +339,16 @@ export class Empilha {
     return this;
   }
 
-  use(input: MiddlewareFn | EmpilhaPlugin): this {
-    this.assertConfiguring("use()");
-    if (isEmpilhaPlugin(input)) {
-      input.install(this);
-      return this;
-    }
+  useMiddleware(middleware: MiddlewareFn): this {
+    this.assertConfiguring("useMiddleware()");
+    this.http.useMiddleware(middleware);
 
-    this.http.use(input);
+    return this;
+  }
+
+  usePlugin(plugin: EmpilhaPlugin): this {
+    this.assertConfiguring("usePlugin()");
+    plugin.install(this as PluginContext);
 
     return this;
   }

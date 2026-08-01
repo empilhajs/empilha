@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { Controller, createTestApp, Empilha, Get } from "../../src";
+import {
+  Controller,
+  createTestApp,
+  definePlugin,
+  Empilha,
+  Get,
+} from "../../src";
 import { defineRoles, Roles } from "../../src/decorators";
 
 describe("atalhos de experiência de desenvolvimento", () => {
@@ -75,6 +81,17 @@ describe("atalhos de experiência de desenvolvimento", () => {
     } finally {
       console.info = originalInfo;
     }
+  });
+
+  test("separa registro de middleware e plugin", () => {
+    let installed = false;
+    const plugin = definePlugin(() => {
+      installed = true;
+    });
+
+    new Empilha().usePlugin(plugin);
+
+    expect(installed).toBe(true);
   });
 
   test("cria decorators de roles", () => {

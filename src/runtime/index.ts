@@ -9,8 +9,5 @@ export {
   BackgroundScheduler,
   type BackgroundSchedulerOptions,
 } from "./background-scheduler";
-export {
-  createErrorResponse,
-  ErrorPipeline,
-  serializeJson,
-} from "./error-pipeline";
+export { createErrorResponse, ErrorPipeline } from "./error-pipeline";
+export { serializeJson } from "../utils/serialize-json";

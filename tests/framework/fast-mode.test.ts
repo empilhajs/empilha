@@ -170,7 +170,7 @@ describe("Empilha request pipeline", () => {
 
     const normal = new Empilha()
       .configureHttp({ cors: false })
-      .use(async (_request, next) => next())
+      .useMiddleware(async (_request, next) => next())
       .validate([Routes])
       .initialize([Routes]);
 
@@ -261,7 +261,7 @@ describe("Empilha request pipeline", () => {
 
     const normal = new Empilha()
       .configureHttp({ cors: false })
-      .use(async (_request, next) => next())
+      .useMiddleware(async (_request, next) => next())
       .validate([Routes])
       .initialize([Routes]);
 

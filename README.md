@@ -30,8 +30,7 @@ class HelloController {
 
 const app = new Empilha().initialize([HelloController]);
 
-await app.listen(4000);
-console.log("API disponível em http://localhost:4000");
+await app.run({ port: 4000 });
 ```
 
 ```sh
@@ -96,15 +95,15 @@ class UsersController {
 
 ## Recursos
 
-| Recurso                | Uso                                                     | Documentação                                                                    |
-| ---------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Rotas e parâmetros     | `@Get`, `@Post`, `@Param`, `@Query`                     | [Criar uma rota](https://empilhajs.github.io/empilha-docs/routes)               |
-| Respostas e schemas    | `@Status`, `@Produces`, `@Returns`                      | [Definir respostas](https://empilhajs.github.io/empilha-docs/responses)         |
-| Injeção de dependência | `@Injectable`, `@Inject`, `app.provide()`               | [Services e DI](https://empilhajs.github.io/empilha-docs/services)              |
-| PostgreSQL             | `@Sql`, `@Transaction("read")`, `@Transaction("write")` | [Usar SQL em uma rota](https://empilhajs.github.io/empilha-docs/sql)            |
-| Middleware e segurança | `app.use()`, `@Use`, `@Roles`                           | [Middleware e autorização](https://empilhajs.github.io/empilha-docs/middleware) |
-| Erros                  | `HttpError`, `@Catch`, `app.catch()`                    | [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors)          |
-| Operação               | limites, CORS, health, shutdown                         | [Configurações comuns](https://empilhajs.github.io/empilha-docs/configuration)  |
+| Recurso                | Uso                                                        | Documentação                                                                    |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Rotas e parâmetros     | `@Get`, `@Post`, `@Param`, `@Query`                        | [Criar uma rota](https://empilhajs.github.io/empilha-docs/routes)               |
+| Respostas e schemas    | `@Status`, `@Produces`, `@Returns`                         | [Definir respostas](https://empilhajs.github.io/empilha-docs/responses)         |
+| Injeção de dependência | `@Injectable`, `@Inject`, `app.provide()`                  | [Services e DI](https://empilhajs.github.io/empilha-docs/services)              |
+| PostgreSQL             | `@Sql`, `@Transaction("read")`, `@Transaction("write")`    | [Usar SQL em uma rota](https://empilhajs.github.io/empilha-docs/sql)            |
+| Middleware e segurança | `app.useMiddleware()`, `app.usePlugin()`, `@Use`, `@Roles` | [Middleware e autorização](https://empilhajs.github.io/empilha-docs/middleware) |
+| Erros                  | `HttpError`, `@Catch`, `app.catch()`                       | [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors)          |
+| Operação               | limites, CORS, health, shutdown                            | [Configurações comuns](https://empilhajs.github.io/empilha-docs/configuration)  |
 
 ## Documentação
 

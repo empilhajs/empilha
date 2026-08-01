@@ -1,10 +1,11 @@
 import { createStringRecord } from "../utils/records";
+import { serializeJson } from "../utils/serialize-json";
 
 const DEFAULT_CORS_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS";
 const DEFAULT_CORS_HEADERS = "Content-Type, Authorization";
 
 function jsonBody(value: unknown): string {
-  return JSON.stringify(value) ?? "null";
+  return serializeJson(value);
 }
 
 /** Resposta intermediária produzida por handlers do framework. */
@@ -90,12 +91,16 @@ export class HttpResponseWriter {
   }
 
   /** Cria uma resposta JSON de erro com o status informado. */
-  error(status: number, message: string): Response {
+  error(
+    status: number,
+    message: string,
+    headers?: Record<string, string>,
+  ): Response {
     return Response.json(
       { error: message },
       {
         status,
-        headers: this.buildHeaders(),
+        headers: this.buildHeaders(headers),
       },
     );
   }

@@ -7,6 +7,7 @@ import type { ServerResponse } from "../http/http-adapter";
 import { getCatchHandler } from "../metadata";
 import type { MetadataRegistry } from "../metadata";
 import type { ControllerInstance } from "../compiler/types";
+import { serializeJson } from "../utils/serialize-json";
 
 type CatchHandler = (error: unknown) => unknown | Promise<unknown>;
 
@@ -34,17 +35,6 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
   );
 }
 
-/** Serializa um valor para JSON, convertendo valores não serializáveis em erro. */
-export function serializeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? "null";
-  } catch {
-    return JSON.stringify({
-      error: String(value),
-    });
-  }
-}
-
 /** Cria uma resposta HTTP JSON com status e mensagem de erro. */
 export function createErrorResponse(
   status: number,
@@ -52,9 +42,12 @@ export function createErrorResponse(
 ): ServerResponse {
   return {
     status,
-    body: serializeJson({
-      error: message,
-    }),
+    body: serializeJson(
+      {
+        error: message,
+      },
+      true,
+    ),
   };
 }
 
@@ -71,7 +64,9 @@ function normalizeServerResponse(value: unknown): ServerResponse | null {
   const response: ServerResponse = {
     status: value.status,
     body:
-      typeof value.body === "string" ? value.body : serializeJson(value.body),
+      typeof value.body === "string"
+        ? value.body
+        : serializeJson(value.body, true),
   };
 
   if ("jsonValue" in value) {
@@ -89,9 +84,12 @@ function defaultErrorResponse(error: unknown): ServerResponse {
   if (error instanceof ValidationError) {
     return {
       status: 400,
-      body: serializeJson({
-        errors: error.errors,
-      }),
+      body: serializeJson(
+        {
+          errors: error.errors,
+        },
+        true,
+      ),
     };
   }
 
@@ -100,7 +98,7 @@ function defaultErrorResponse(error: unknown): ServerResponse {
 
     return {
       status: 400,
-      body: serializeJson({ errors }),
+      body: serializeJson({ errors }, true),
     };
   }
 
@@ -131,10 +129,7 @@ function defaultErrorResponse(error: unknown): ServerResponse {
 
 /** Registra catchers e converte falhas do framework em respostas HTTP. */
 export class ErrorPipeline {
-  private readonly globalCatchers: Array<{
-    errorType: Function;
-    handler: CatchHandler;
-  }> = [];
+  private readonly globalCatchers = new Map<Function, CatchHandler>();
 
   /**
    * Registra um catcher global para uma classe de erro.
@@ -148,10 +143,9 @@ export class ErrorPipeline {
       throw new TypeError("O tipo do erro deve ser uma classe ou função.");
     }
 
-    this.globalCatchers.push({
-      errorType,
-      handler,
-    });
+    if (!this.globalCatchers.has(errorType)) {
+      this.globalCatchers.set(errorType, handler);
+    }
   }
 
   /**
@@ -187,7 +181,7 @@ export class ErrorPipeline {
         return (
           normalizeServerResponse(result) ?? {
             status: 500,
-            body: serializeJson(result),
+            body: serializeJson(result, true),
           }
         );
       } catch (handlerError) {
@@ -197,21 +191,28 @@ export class ErrorPipeline {
   }
 
   private async handleGlobal(error: unknown): Promise<ServerResponse> {
-    const catcher = this.globalCatchers.find(
-      ({ errorType }) => error instanceof errorType,
-    );
+    let constructor: Function | null =
+      typeof error === "object" && error !== null ? error.constructor : null;
+    let handler: CatchHandler | undefined;
 
-    if (!catcher) {
+    while (constructor) {
+      handler = this.globalCatchers.get(constructor);
+      if (handler) break;
+      const prototype = Object.getPrototypeOf(constructor.prototype);
+      constructor = prototype?.constructor ?? null;
+    }
+
+    if (!handler) {
       return defaultErrorResponse(error);
     }
 
     try {
-      const result = await catcher.handler(error);
+      const result = await handler(error);
 
       return (
         normalizeServerResponse(result) ?? {
           status: 500,
-          body: serializeJson(result),
+          body: serializeJson(result, true),
         }
       );
     } catch (handlerError) {

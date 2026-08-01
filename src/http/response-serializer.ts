@@ -1,4 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
+import { serializeJson } from "../utils/serialize-json";
 
 /**
  * Função responsável por serializar um valor
@@ -14,6 +15,8 @@ type SchemaNode = TSchema & {
   type?: string;
   items?: TSchema;
   properties?: Record<string, TSchema>;
+  anyOf?: TSchema[];
+  oneOf?: TSchema[];
 };
 
 /**
@@ -36,10 +39,6 @@ type CompiledProperty = {
  *
  * @returns A representação JSON do valor.
  */
-function serializeJson(value: unknown): string {
-  return JSON.stringify(value) ?? "null";
-}
-
 /**
  * Compila um serializer para schemas de array.
  *
@@ -139,6 +138,52 @@ function compileObject(
   };
 }
 
+function matchesSchema(value: unknown, schema: TSchema): boolean {
+  const node = schema as SchemaNode;
+  if (node.anyOf || node.oneOf) {
+    return (node.anyOf ?? node.oneOf ?? []).some((item) =>
+      matchesSchema(value, item),
+    );
+  }
+
+  switch (node.type) {
+    case "undefined":
+      return value === undefined;
+    case "null":
+      return value === null;
+    case "string":
+      return typeof value === "string";
+    case "number":
+    case "integer":
+      return typeof value === "number";
+    case "boolean":
+      return typeof value === "boolean";
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return (
+        value !== null && typeof value === "object" && !Array.isArray(value)
+      );
+    default:
+      return true;
+  }
+}
+
+function compileUnion(schemas: TSchema[] | undefined): Serializer | null {
+  if (!schemas?.length) return null;
+  const compiled = schemas.map((schema) => compile(schema));
+  if (compiled.some((serializer) => !serializer)) return null;
+
+  return (value) => {
+    for (let index = 0; index < compiled.length; index++) {
+      if (matchesSchema(value, schemas[index])) {
+        return (compiled[index] as Serializer)(value);
+      }
+    }
+    return serializeJson(value);
+  };
+}
+
 /**
  * Compila um serializer a partir de um schema TypeBox.
  *
@@ -156,6 +201,9 @@ function compile(schema: TSchema | undefined): Serializer | null {
   }
 
   const node = schema as SchemaNode;
+
+  const union = compileUnion(node.anyOf ?? node.oneOf);
+  if (union) return union;
 
   switch (node.type) {
     case "string":

@@ -53,4 +53,17 @@ describe("response serializer", () => {
       '{"profile":{"name":"Ada"}}',
     );
   });
+
+  test("serializa anyOf e propriedades opcionais", () => {
+    const serialize = compileResponseSerializer(
+      t.Union([t.String(), t.Number()]),
+    );
+    const serializeObject = compileResponseSerializer(
+      t.Object({ value: t.Optional(t.String()) }),
+    );
+
+    expect(serialize("ok")).toBe('"ok"');
+    expect(serialize(3)).toBe("3");
+    expect(serializeObject({})).toBe("{}");
+  });
 });

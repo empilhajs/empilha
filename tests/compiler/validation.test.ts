@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileValidator } from "../../src/decorators/validation";
-import { t } from "../../src/schema";
+import { t } from "../../src";
 
 describe("validator compilation", () => {
   test("reutiliza o schema compartilhado entre validators", () => {

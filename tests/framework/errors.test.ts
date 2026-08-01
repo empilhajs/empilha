@@ -149,7 +149,7 @@ describe("Empilha errors", () => {
 
     const app = new Empilha()
       .configureHttp({ cors: false })
-      .use(async () => {
+      .useMiddleware(async () => {
         throw new GlobalFailure();
       })
       .catch(GlobalFailure, () => ({ status: 422, body: '{"handled":true}' }))

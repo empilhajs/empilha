@@ -29,7 +29,7 @@ describe("Empilha scoped middleware", () => {
 
     const app = new Empilha()
       .configureHttp({ cors: false })
-      .use(requestLogger((entry) => entries.push(entry)))
+      .useMiddleware(requestLogger((entry) => entries.push(entry)))
       .validate([LoggedRoute])
       .initialize([LoggedRoute]);
 
@@ -88,7 +88,7 @@ describe("Empilha scoped middleware", () => {
 
     const app = new Empilha()
       .configureHttp({ cors: false })
-      .use(globalMiddleware)
+      .useMiddleware(globalMiddleware)
       .validate([Routes])
       .initialize([Routes]);
 

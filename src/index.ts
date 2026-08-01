@@ -71,7 +71,11 @@ export {
   compileValidator,
   type Validator,
 } from "./decorators";
-export { definePlugin, type EmpilhaPlugin } from "./application/plugin";
+export {
+  definePlugin,
+  type EmpilhaPlugin,
+  type PluginContext,
+} from "./application/plugin";
 export { testPostgres, type TestPostgres } from "./application/test-postgres";
 
 export { HttpError, NotFoundError, ValidationError } from "./errors";

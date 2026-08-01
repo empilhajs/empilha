@@ -2,12 +2,25 @@ import type { Empilha } from "../empilha";
 
 const PLUGIN = Symbol("empilha.plugin");
 
-export type EmpilhaPlugin = {
-  readonly [PLUGIN]: true;
-  install(app: Empilha): void;
+export type PluginContext = Pick<
+  Empilha,
+  | "configure"
+  | "configureHttp"
+  | "useMiddleware"
+  | "registerPluginService"
+  | "registerQuery"
+> & {
+  readonly http: Empilha["http"];
 };
 
-export function definePlugin(install: (app: Empilha) => void): EmpilhaPlugin {
+export type EmpilhaPlugin = {
+  readonly [PLUGIN]: true;
+  install(context: PluginContext): void;
+};
+
+export function definePlugin(
+  install: (context: PluginContext) => void,
+): EmpilhaPlugin {
   return { [PLUGIN]: true, install };
 }
 

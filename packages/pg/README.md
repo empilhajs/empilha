@@ -8,7 +8,7 @@ import { Empilha } from "empilha"
 import { postgres } from "@empilha/pg"
 
 const app = new Empilha()
-  .use(
+  .usePlugin(
     postgres({
       url: process.env.DATABASE_URL!,
       sql: "./src/queries",

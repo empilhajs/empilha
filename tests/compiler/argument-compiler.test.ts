@@ -80,4 +80,24 @@ describe("argument compiler", () => {
 
     expect(received).toBe("payload");
   });
+
+  test("rejeita string vazia como número com erro estruturado", () => {
+    const compile = compileArgGetters(
+      route([{ index: 0, source: "query", name: "page", type: Number }]),
+    );
+
+    try {
+      compile({
+        params: {},
+        query: { page: "" },
+        body: undefined,
+        headers: {},
+      });
+      throw new Error("expected conversion to fail");
+    } catch (error) {
+      expect(error).toMatchObject({
+        errors: [{ path: "page", message: "Expected a valid number." }],
+      });
+    }
+  });
 });

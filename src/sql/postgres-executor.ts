@@ -232,26 +232,22 @@ export class PostgresExecutor {
       return operation({ signal: externalSignal }).catch(normalizeError);
     }
 
-    const abortController = new AbortController();
-    const abortFromExternal = () =>
-      abortController.abort(externalSignal?.reason);
-    if (externalSignal) {
-      if (externalSignal.aborted) abortFromExternal();
-      else
-        externalSignal.addEventListener("abort", abortFromExternal, {
-          once: true,
-        });
-    }
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+    const operationSignal = externalSignal
+      ? AbortSignal.any([externalSignal, timeoutSignal])
+      : timeoutSignal;
+    const normalizeOperationError = (error: unknown): never => {
+      if (timeoutSignal.aborted && !externalSignal?.aborted) {
+        throw new HttpError(504, "Database timeout", { cause: error });
+      }
+      return normalizeError(error);
+    };
     const operationPromise = operation({
-      signal: abortController.signal,
-    }).catch(normalizeError);
+      signal: operationSignal,
+    }).catch(normalizeOperationError);
 
     return withTimeout(operationPromise, this.timeoutMs, () => {
-      const error = new HttpError(504, "Database timeout");
-      abortController.abort(error);
-      throw error;
-    }).finally(() => {
-      externalSignal?.removeEventListener("abort", abortFromExternal);
+      throw new HttpError(504, "Database timeout");
     });
   }
 

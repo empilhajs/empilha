@@ -7,7 +7,7 @@ provedor de tokens.
 import { Empilha } from "empilha"
 import { jwt } from "@empilha/jwt"
 
-const app = new Empilha().use(
+const app = new Empilha().usePlugin(
   jwt({
     name: "access",
     secret: process.env.JWT_SECRET!,

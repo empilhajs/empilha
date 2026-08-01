@@ -1,4 +1,4 @@
-import type { TSchema } from "@sinclair/typebox";
+import type { Static, TSchema } from "@sinclair/typebox";
 import type { MiddlewareFn } from "./http/http-adapter";
 
 export type HttpMethod =
@@ -91,6 +91,8 @@ export type ControllerOptions = {
 export type RequestContext<TBody = unknown> = {
   method: string;
   pathname: string;
+  /** Sinal de cancelamento do request, incluindo timeout e desconexão. */
+  signal?: AbortSignal;
   headers: Record<string, string>;
   /** Valores originais do path, sempre como texto. */
   rawParams: Readonly<Record<string, string>>;
@@ -104,6 +106,6 @@ export type RequestContext<TBody = unknown> = {
   result?: unknown;
 };
 
-export type Infer<T extends TSchema, P extends unknown[] = []> = (T & {
+export type Infer<T extends TSchema, P extends unknown[] = []> = Static<T> & {
   params: P;
-})["static"];
+};
