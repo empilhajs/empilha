@@ -24,10 +24,11 @@ import {
   type ServerRequest,
   type HttpOptions,
 } from "./adapter-types";
-import { isPromise, validateTimeout } from "./adapter-helpers";
+import { isPromise, validateLimit, validateTimeout } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
 import {
   headersToRecord,
+  countHeaders,
   parseRequestPath,
   parseRequestQuery,
   type ParsedRequestPath,
@@ -95,6 +96,8 @@ export class HttpAdapter {
 
   private requestIdEnabled = true;
 
+  private maxHeaderCount: number | null = 100;
+
   private requestScopeFactory: (() => Container) | undefined;
 
   private readonly requests = new RequestTracker();
@@ -138,6 +141,8 @@ export class HttpAdapter {
       this.setServerHeader(options.serverHeader);
     if (options.maxBodyBytes !== undefined)
       this.setMaxBodyBytes(options.maxBodyBytes);
+    if (options.maxHeaderCount !== undefined)
+      this.setMaxHeaderCount(options.maxHeaderCount);
     if (options.bodyTimeout !== undefined)
       this.setBodyTimeout(options.bodyTimeout);
     if (options.handlerTimeout !== undefined)
@@ -166,6 +171,12 @@ export class HttpAdapter {
   setRequestIdEnabled(enabled: boolean): void {
     this.requestIdEnabled = enabled;
     this.server.setRequestIdEnabled(enabled);
+  }
+
+  /** Limita a quantidade de campos de header aceitos por request. */
+  setMaxHeaderCount(limit: number | null): void {
+    this.maxHeaderCount = validateLimit(limit, "headers");
+    this.server.setMaxHeaderCount(this.maxHeaderCount);
   }
 
   /** Adiciona um middleware global ao pipeline completo. */
@@ -443,6 +454,13 @@ export class HttpAdapter {
    * @returns Response imediata ou Promise de Response.
    */
   handleRequest(request: Request): Response | Promise<Response> {
+    if (
+      this.maxHeaderCount !== null &&
+      countHeaders(request.headers) > this.maxHeaderCount
+    ) {
+      return this.responses.error(431, "Request Header Fields Too Large");
+    }
+
     let parsedPath: ParsedRequestPath;
 
     try {

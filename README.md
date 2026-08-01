@@ -59,6 +59,7 @@ bun run dev
 - OpenAPI 3.1 e Swagger UI gerados das declarações de rota.
 - Timeouts cooperativos, shutdown ordenado, health checks e tarefas em segundo plano.
 - Logging estruturado com request ID, status e duração.
+- Limites de body e headers, timeout cooperativo e limite de concorrência.
 - Cliente de teste que exercita a aplicação sem abrir uma porta HTTP.
 
 ## Exemplo: endpoint validado e documentado

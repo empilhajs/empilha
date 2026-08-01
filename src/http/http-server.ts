@@ -3,6 +3,7 @@ import { validateTimeout } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
 import { withTimeout } from "../utils/timeout";
 import { addRequestId } from "./request-id";
+import { countHeaders } from "./request-parsing";
 
 type BunServer = ReturnType<typeof Bun.serve>;
 export type NativeRouteHandler = (
@@ -18,6 +19,7 @@ export class HttpServer {
   private server: BunServer | null = null;
   private shutdownTimeoutMs: number | null = 15_000;
   private requestIdEnabled = true;
+  private maxHeaderCount: number | null = 100;
 
   constructor(
     private readonly fetch: (request: Request) => Response | Promise<Response>,
@@ -39,6 +41,10 @@ export class HttpServer {
 
   setRequestIdEnabled(enabled: boolean): void {
     this.requestIdEnabled = enabled;
+  }
+
+  setMaxHeaderCount(limit: number | null): void {
+    this.maxHeaderCount = limit;
   }
 
   async listen(port: number): Promise<void> {
@@ -79,6 +85,12 @@ export class HttpServer {
 
   private trackNativeHandler(handler: NativeRouteHandler): NativeRouteHandler {
     return (request) => {
+      if (
+        this.maxHeaderCount !== null &&
+        countHeaders(request.headers) > this.maxHeaderCount
+      ) {
+        return new Response("Request Header Fields Too Large", { status: 431 });
+      }
       this.requests.tryEnter(null);
 
       try {

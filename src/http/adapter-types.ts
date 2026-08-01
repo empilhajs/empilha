@@ -47,6 +47,7 @@ export type HttpOptions = {
   requestId?: boolean;
   serverHeader?: string;
   maxBodyBytes?: number;
+  maxHeaderCount?: number | null;
   bodyTimeout?: number | null;
   handlerTimeout?: number | null;
   maxConcurrentRequests?: number | null;

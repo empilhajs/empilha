@@ -19,3 +19,16 @@ export function validateTimeout(
   }
   return milliseconds;
 }
+
+export function validateLimit(
+  limit: number | null,
+  name: string,
+): number | null {
+  if (limit === null) return null;
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new RangeError(
+      `O limite de ${name} deve ser um inteiro positivo ou null.`,
+    );
+  }
+  return limit;
+}

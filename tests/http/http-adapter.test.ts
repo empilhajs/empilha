@@ -33,6 +33,20 @@ describe("HttpAdapter", () => {
     );
   });
 
+  test("rejeita requests que excedem o limite de headers", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setMaxHeaderCount(1);
+    adapter.get("/limited-headers", () => ({ status: 200, body: "ok" }));
+
+    const response = await adapter.handleRequest(
+      request("/limited-headers", {
+        headers: { "X-First": "one", "X-Second": "two" },
+      }),
+    );
+
+    expect(response.status).toBe(431);
+  });
+
   test("permite desabilitar X-Request-Id no fallback e na rota nativa", async () => {
     const fallback = new HttpAdapter();
     fallback.setRequestIdEnabled(false);

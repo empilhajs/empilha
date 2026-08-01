@@ -160,3 +160,9 @@ export function headersToRecord(headers: Headers): Record<string, string> {
 
   return result ?? EMPTY_STRING_RECORD;
 }
+
+export function countHeaders(headers: Headers): number {
+  let count = 0;
+  headers.forEach(() => count++);
+  return count;
+}
