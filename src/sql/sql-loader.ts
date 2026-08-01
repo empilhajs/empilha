@@ -46,18 +46,18 @@ function registerSQL(
  * Extrai e registra múltiplas queries de um arquivo SQL.
  *
  * Cada query deve começar com um cabeçalho no formato
- * `-- nomeDaQuery`.
+ * `-- @query nomeDaQuery`.
  *
  * @param content - Conteúdo normalizado do arquivo SQL.
  * @param file - Caminho do arquivo processado.
  *
  * @example
- * -- findUserById
+ * -- @query findUserById
  * SELECT *
  * FROM users
  * WHERE id = $1;
  *
- * -- deleteUser
+ * -- @query deleteUser
  * DELETE FROM users
  * WHERE id = $1;
  */
@@ -66,7 +66,7 @@ function parseSQL(
   content: string,
   file: string,
 ): void {
-  const headers = [...content.matchAll(/^--[ \t]*(\w+)[ \t]*$/gm)];
+  const headers = [...content.matchAll(/^--[ \t]*@query[ \t]+(\w+)[ \t]*$/gm)];
 
   for (const [index, header] of headers.entries()) {
     const name = header[1];
@@ -95,7 +95,7 @@ function isSQLFile(file: string): boolean {
 /**
  * Carrega e registra as queries de um arquivo SQL.
  *
- * Arquivos iniciados por um cabeçalho `-- nomeDaQuery`
+ * Arquivos iniciados por um cabeçalho `-- @query nomeDaQuery`
  * podem conter múltiplas queries. Nos demais arquivos,
  * o nome do arquivo é usado como nome da query.
  *
@@ -106,7 +106,7 @@ function loadFile(registry: QueryRegistry, file: string): void {
 
   const firstLine = content.trimStart().split("\n", 1)[0];
 
-  const hasBlocks = /^--[ \t]*\w+[ \t]*$/.test(firstLine);
+  const hasBlocks = /^--[ \t]*@query[ \t]+\w+[ \t]*$/.test(firstLine);
 
   if (hasBlocks) {
     parseSQL(registry, content, file);

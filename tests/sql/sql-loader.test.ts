@@ -19,7 +19,7 @@ describe("SQL loader", () => {
 
       writeFileSync(
         file,
-        "\uFEFF-- list\r\nSELECT 1\r\n\r\n-- find\r\nSELECT 2\r\n",
+        "\uFEFF-- @query list\r\nSELECT 1\r\n\r\n-- @query find\r\nSELECT 2\r\n",
       );
 
       loadSQL(file, registry);
@@ -41,7 +41,7 @@ describe("SQL loader", () => {
     try {
       writeFileSync(join(dir, "b.sql"), "SELECT B");
       writeFileSync(join(dir, "a.sql"), "SELECT A");
-      writeFileSync(join(dir, "empty.sql"), "-- nothing\n");
+      writeFileSync(join(dir, "empty.sql"), "-- @query nothing\n");
 
       loadSQL(dir, registry);
 
