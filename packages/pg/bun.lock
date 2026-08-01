@@ -7,12 +7,12 @@
       "devDependencies": {
         "@types/bun": "^1.3.14",
         "@types/pg": "^8.11.10",
-        "empilha": "^0.1.7",
+        "empilha": "^0.1.8",
         "pg": "^8.13.0",
         "typescript": "^7.0.2",
       },
       "peerDependencies": {
-        "empilha": "^0.1.7",
+        "empilha": "^0.1.8",
         "pg": "^8.0.0",
       },
       "optionalPeers": [
@@ -72,7 +72,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "empilha": ["empilha@0.1.7", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-CJ3NkzortHYnffms72qNWQSLZmgB3mll5Ow8ZcmC8oTFg7JZ6wrrGiAD//fTKPLBB/M+Ur8JB0dCYo0nl5aP1A=="],
+    "empilha": ["empilha@0.1.8", "", { "dependencies": { "@sinclair/typebox": "^0.34.52" } }, "sha512-ANd4N+dAvReQFWzvsiMWkJKxkEHFrh84LF1f8Vqw5HsN6NCYsGDZCJzuzLHmx4Rt5jqG/GiVLJEPBN4+J+pnsw=="],
 
     "pg": ["pg@8.22.0", "", { "dependencies": { "pg-connection-string": "^2.14.0", "pg-pool": "^3.14.0", "pg-protocol": "^1.15.0", "pg-types": "2.2.0", "pgpass": "1.0.5" }, "optionalDependencies": { "pg-cloudflare": "^1.4.0" }, "peerDependencies": { "pg-native": ">=3.0.1" }, "optionalPeers": ["pg-native"] }, "sha512-8wih1vVIBMxoUM2oB4soJsD9tDnDpLv4OXBJ+EJzFsvycD+lfyIreC2gGHq78f8jbLLt+bvlPTFdFZfJkOuzAA=="],
 
