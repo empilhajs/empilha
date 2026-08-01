@@ -145,6 +145,7 @@ export class Container {
   private readonly providers = new Map<DependencyToken, RegisteredProvider>();
   private readonly instances = new Map<DependencyToken, unknown>();
   private readonly ownedInstances: OwnedInstance[] = [];
+  private readonly ownedByToken = new Map<DependencyToken, OwnedInstance>();
   private disposed = false;
 
   constructor(
@@ -190,10 +191,7 @@ export class Container {
 
     const existingProvider = this.providers.get(token);
     const existingInstance = this.instances.get(token);
-    const existingOwned = this.ownedInstances.find(
-      (instance) =>
-        instance.token === token && instance.value === existingInstance,
-    );
+    const existingOwned = this.ownedByToken.get(token);
     if (existingOwned?.onDispose) {
       throw new Error(
         `O provider "${String(token)}" já foi resolvido e possui disposal; ` +
@@ -345,13 +343,15 @@ export class Container {
 
     if (provider.scope !== "transient")
       instanceOwner.instances.set(token, value);
-    instanceOwner.ownedInstances.push({
+    const owned: OwnedInstance = {
       token,
       value,
       onDispose: provider.onDispose as
         | ((value: unknown) => void | Promise<void>)
         | undefined,
-    });
+    };
+    instanceOwner.ownedInstances.push(owned);
+    instanceOwner.ownedByToken.set(token, owned);
     return value as T;
   }
 
@@ -380,6 +380,7 @@ export class Container {
 
     this.instances.clear();
     this.ownedInstances.length = 0;
+    this.ownedByToken.clear();
     if (errors.length > 0) {
       throw new AggregateError(
         errors,
@@ -404,6 +405,7 @@ export class Container {
     this.disposed = true;
     this.instances.clear();
     this.ownedInstances.length = 0;
+    this.ownedByToken.clear();
     return true;
   }
 

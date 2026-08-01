@@ -125,6 +125,14 @@ function parametersForRoute(
   route: RegisteredRouteMetadata,
   path: string,
 ): OpenApiParameter[] {
+  if (
+    route.parameters.length === 0 &&
+    route.querySchema === undefined &&
+    !path.includes(":")
+  ) {
+    return [];
+  }
+
   const parameters: OpenApiParameter[] = route.parameters.flatMap(
     (parameter): OpenApiParameter[] => {
       if (
@@ -177,21 +185,33 @@ function parametersForRoute(
 }
 
 function openApiPath(path: string): string {
+  if (!path.includes(":")) return path;
   return path.replace(/:([^/]+)/g, "{$1}");
 }
 
-function responseForRoute(route: RegisteredRouteMetadata): OpenApiResponse {
-  const status = statusCode(route);
+const NO_CONTENT_RESPONSE: OpenApiResponse = Object.freeze({
+  description: "No Content",
+});
 
+const JSON_RESPONSE_NO_SCHEMA: OpenApiResponse = Object.freeze({
+  description: "Successful response",
+  content: {
+    "application/json": {},
+  },
+});
+
+function responseForRoute(
+  route: RegisteredRouteMetadata,
+  status: number,
+): OpenApiResponse {
   if (status === 204) {
-    return {
-      description: "No Content",
-    };
+    return NO_CONTENT_RESPONSE;
   }
 
   const mediaType = route.contentType ?? "application/json";
 
   if (!route.responseSchema) {
+    if (mediaType === "application/json") return JSON_RESPONSE_NO_SCHEMA;
     return {
       description: "Successful response",
       content: {
@@ -221,17 +241,21 @@ function errorResponse(description: string): OpenApiResponse {
   };
 }
 
+const BASE_ERROR_RESPONSES = Object.freeze({
+  "400": errorResponse("Bad Request"),
+  "408": errorResponse("Request Timeout"),
+  "413": errorResponse("Payload Too Large"),
+  "415": errorResponse("Unsupported Media Type"),
+  "500": errorResponse("Internal Server Error"),
+  "503": errorResponse("Service Unavailable"),
+  "504": errorResponse("Gateway Timeout"),
+});
+
 function errorResponsesForRoute(
   route: RegisteredRouteMetadata,
 ): Record<string, OpenApiResponse> {
   const responses: Record<string, OpenApiResponse> = {
-    "400": errorResponse("Bad Request"),
-    "408": errorResponse("Request Timeout"),
-    "413": errorResponse("Payload Too Large"),
-    "415": errorResponse("Unsupported Media Type"),
-    "503": errorResponse("Service Unavailable"),
-    "504": errorResponse("Gateway Timeout"),
-    "500": errorResponse("Internal Server Error"),
+    ...BASE_ERROR_RESPONSES,
   };
   if (route.auth || route.requiresAuth) {
     responses["401"] = errorResponse("Unauthorized");
@@ -239,6 +263,92 @@ function errorResponsesForRoute(
   }
   if (route.sqlOnEmpty === "notFound")
     responses["404"] = errorResponse("Not Found");
+  return responses;
+}
+
+const responsesCache = new Map<
+  string,
+  WeakMap<object, Record<string, OpenApiResponse>>
+>();
+const responsesWithoutSchemaCache = new Map<
+  string,
+  Record<string, OpenApiResponse>
+>();
+
+function cloneResponses(
+  responses: Record<string, OpenApiResponse>,
+): Record<string, OpenApiResponse> {
+  return Object.fromEntries(
+    Object.entries(responses).map(([status, response]) => [
+      status,
+      {
+        ...response,
+        ...(response.content
+          ? {
+              content: Object.fromEntries(
+                Object.entries(response.content).map(([mediaType, media]) => [
+                  mediaType,
+                  { ...media },
+                ]),
+              ),
+            }
+          : {}),
+      },
+    ]),
+  );
+}
+
+function responsesForRoute(
+  route: RegisteredRouteMetadata,
+  status: number,
+): Record<string, OpenApiResponse> {
+  const mediaType = route.contentType ?? "application/json";
+  const hasAuth = route.auth || route.requiresAuth ? 1 : 0;
+  const notFound = route.sqlOnEmpty === "notFound" ? 1 : 0;
+  const key = `${status}|${mediaType}|${hasAuth}|${notFound}`;
+
+  const cached = route.responseSchema
+    ? getCachedResponsesWithSchema(key, route, status)
+    : getCachedResponsesWithoutSchema(key, route, status);
+  return cached;
+}
+
+function getCachedResponsesWithSchema(
+  key: string,
+  route: RegisteredRouteMetadata,
+  status: number,
+): Record<string, OpenApiResponse> {
+  let bySchema = responsesCache.get(key);
+  if (!bySchema) {
+    bySchema = new WeakMap();
+    responsesCache.set(key, bySchema);
+  }
+
+  const schema = route.responseSchema as object;
+  let responses = bySchema.get(schema);
+  if (!responses) {
+    responses = {
+      [status]: responseForRoute(route, status),
+      ...errorResponsesForRoute(route),
+    };
+    bySchema.set(schema, responses);
+  }
+  return responses;
+}
+
+function getCachedResponsesWithoutSchema(
+  key: string,
+  route: RegisteredRouteMetadata,
+  status: number,
+): Record<string, OpenApiResponse> {
+  let responses = responsesWithoutSchemaCache.get(key);
+  if (!responses) {
+    responses = {
+      [status]: responseForRoute(route, status),
+      ...errorResponsesForRoute(route),
+    };
+    responsesWithoutSchemaCache.set(key, responses);
+  }
   return responses;
 }
 
@@ -304,10 +414,7 @@ export class OpenApiDocumentBuilder {
     const operation: OpenApiOperation = {
       operationId: `${controllerName}.${String(route.propertyKey)}`,
       tags: tags.length > 0 ? [...tags] : [controllerName],
-      responses: {
-        [status]: responseForRoute(route),
-        ...errorResponsesForRoute(route),
-      },
+      responses: responsesForRoute(route, status),
     };
 
     if (parameters.length > 0) {
@@ -347,7 +454,20 @@ export class OpenApiDocumentBuilder {
     const document: OpenApiDocument = {
       openapi: "3.1.0",
       info: this.info,
-      paths: this.paths,
+      paths: Object.fromEntries(
+        Object.entries(this.paths).map(([path, pathItem]) => [
+          path,
+          Object.fromEntries(
+            Object.entries(pathItem).map(([method, operation]) => [
+              method,
+              {
+                ...operation,
+                responses: cloneResponses(operation.responses),
+              },
+            ]),
+          ),
+        ]),
+      ) as OpenApiDocument["paths"],
     };
 
     if (this.hasBearerAuthentication) {

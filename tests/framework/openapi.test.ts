@@ -16,8 +16,34 @@ import {
   t,
   type OpenApiDocument,
 } from "../../src";
+import { OpenApiDocumentBuilder } from "../../src/openapi";
+import type { RegisteredRouteMetadata } from "../../src/types";
 
 describe("Empilha OpenAPI", () => {
+  test("isola respostas OpenAPI entre operações que compartilham schema", () => {
+    const schema = t.Object({ ok: t.Boolean() });
+    const route = {
+      parameters: [],
+      propertyKey: "get",
+      method: "GET",
+      responseSchema: schema,
+    } as unknown as RegisteredRouteMetadata;
+    const builder = new OpenApiDocumentBuilder();
+
+    builder.addRoute("First", "/first", route);
+    builder.addRoute("Second", "/second", {
+      ...route,
+      propertyKey: "other",
+    });
+
+    const document = builder.build();
+    document.paths["/first"].get.responses["200"].description = "Changed";
+
+    expect(document.paths["/second"].get.responses["200"].description).toBe(
+      "Successful response",
+    );
+  });
+
   test("gera contrato e Swagger UI com apenas app.openapi()", async () => {
     const input = t.Object({
       name: t.String(),
