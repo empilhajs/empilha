@@ -22,6 +22,7 @@ import {
   type ServerHandler,
   type ServerHandlerResult,
   type ServerRequest,
+  type HttpOptions,
 } from "./adapter-types";
 import { isPromise, validateTimeout } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
@@ -36,6 +37,7 @@ import { withTimeout } from "../utils/timeout";
 import { ApplicationLogger, type Logger } from "../utils/logger";
 import { HttpServer, type NativeRouteValue } from "./http-server";
 import { addRequestId } from "./request-id";
+import { serializeJson } from "../utils/serialize-json";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -45,6 +47,7 @@ export type {
   ServerHandlerResult,
   ServerRequest,
 } from "./adapter-types";
+export type { HttpOptions } from "./adapter-types";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -59,6 +62,7 @@ type MatchedRoute = {
 const EMPTY_SERVER_REQUEST: ServerRequest = Object.freeze({
   method: "",
   pathname: "/",
+  signal: new AbortController().signal,
   rawQuery: EMPTY_STRING_RECORD,
   query: EMPTY_STRING_RECORD,
   headers: EMPTY_STRING_RECORD,
@@ -110,10 +114,39 @@ export class HttpAdapter {
 
   private errorHandler: ErrorHandler = async () => ({
     status: 500,
-    body: JSON.stringify({ error: "Internal server error" }),
+    body: serializeJson({ error: "Internal server error" }),
   });
 
   private logger: Logger = new ApplicationLogger();
+
+  /** Aplica todas as opções HTTP em uma única operação de configuração. */
+  configure(options: HttpOptions): void {
+    if (options.requestId !== undefined)
+      this.setRequestIdEnabled(options.requestId);
+    if (options.cors === false) this.disableCors();
+    else if (typeof options.cors === "string") this.enableCors(options.cors);
+    else if (options.cors !== undefined) {
+      this.enableCors(
+        options.cors.origin,
+        options.cors.methods,
+        options.cors.headers,
+        options.cors.credentials,
+        options.cors.maxAge,
+      );
+    }
+    if (options.serverHeader !== undefined)
+      this.setServerHeader(options.serverHeader);
+    if (options.maxBodyBytes !== undefined)
+      this.setMaxBodyBytes(options.maxBodyBytes);
+    if (options.bodyTimeout !== undefined)
+      this.setBodyTimeout(options.bodyTimeout);
+    if (options.handlerTimeout !== undefined)
+      this.setHandlerTimeout(options.handlerTimeout);
+    if (options.maxConcurrentRequests !== undefined)
+      this.setRequestConcurrency(options.maxConcurrentRequests);
+    if (options.shutdownTimeout !== undefined)
+      this.setShutdownTimeout(options.shutdownTimeout);
+  }
 
   setLogger(logger: Logger): void {
     this.logger = logger;
@@ -136,7 +169,7 @@ export class HttpAdapter {
   }
 
   /** Adiciona um middleware global ao pipeline completo. */
-  use(middleware: MiddlewareFn): void {
+  useMiddleware(middleware: MiddlewareFn): void {
     this.middlewares.push(middleware);
   }
 
@@ -223,7 +256,10 @@ export class HttpAdapter {
   // Dispatch e tratamento de erros
   // -------------------------------------------------------------------------
 
-  private withHandlerTimeout(response: Promise<Response>): Promise<Response> {
+  private withHandlerTimeout(
+    response: Promise<Response>,
+    controller?: AbortController,
+  ): Promise<Response> {
     if (this.handlerTimeoutMs === null) {
       return response;
     }
@@ -246,14 +282,15 @@ export class HttpAdapter {
       });
     }
 
-    // Sem scope o handler não enxerga um signal para abortar, então o timeout
-    // apenas responde 504. O request segue rastreado até a Promise original
-    // terminar para que o shutdown espere a execução em background.
+    // Mesmo sem RequestScope, o handler recebe um signal próprio. O request
+    // segue rastreado até a Promise original terminar para que o shutdown
+    // espere a execução em background.
     this.requests.track(response);
 
-    return withTimeout(response, this.handlerTimeoutMs, () =>
-      this.responses.error(504, "Handler timeout"),
-    ).catch((error) => {
+    return withTimeout(response, this.handlerTimeoutMs, () => {
+      controller?.abort(new Error("Handler timeout"));
+      return this.responses.error(504, "Handler timeout");
+    }).catch((error) => {
       this.logger.error(error, "Falha ao produzir resposta HTTP.");
       return this.responses.error(500, "Internal server error");
     });
@@ -277,6 +314,7 @@ export class HttpAdapter {
   private dispatchHandler(
     req: ServerRequest,
     handler: ConfiguredHandler,
+    controller?: AbortController,
   ): Response | Promise<Response> {
     try {
       const result = this.middlewares.length
@@ -296,6 +334,7 @@ export class HttpAdapter {
               this.normalizeHandlerResponse(response, handler.responseType),
             )
             .catch((error) => this.handleDispatchError(error)),
+          controller,
         );
       }
 
@@ -333,6 +372,7 @@ export class HttpAdapter {
     params: Record<string, string>,
     options: HandlerOptions,
     queryStart: number,
+    signal: AbortSignal,
   ): ServerRequest {
     const rawQuery = options.needsQuery
       ? parseRequestQuery(request.url, queryStart)
@@ -341,6 +381,7 @@ export class HttpAdapter {
     return {
       method: request.method,
       pathname,
+      signal,
       rawQuery,
       // QueryParams substitui `query` por um novo objeto quando normaliza a
       // rota. Sem schema, o mapa bruto já é o mapa efetivo e não precisa de
@@ -365,6 +406,7 @@ export class HttpAdapter {
     request: Request,
     serverRequest: ServerRequest,
     handler: ConfiguredHandler,
+    controller?: AbortController,
   ): Promise<Response> {
     return this.bodyReader
       .read(
@@ -373,7 +415,7 @@ export class HttpAdapter {
       )
       .then((body) => {
         serverRequest.body = body;
-        return this.dispatchHandler(serverRequest, handler);
+        return this.dispatchHandler(serverRequest, handler, controller);
       })
       .catch((error) => {
         if (error instanceof RequestBodyError) {
@@ -430,6 +472,14 @@ export class HttpAdapter {
     }
 
     if (!route) {
+      const allowedMethods = this.router.allowedMethods(parsedPath.pathname);
+      if (allowedMethods.length > 0) {
+        return this.runRequestWithoutScope(request, () =>
+          this.responses.error(405, "Method not allowed", {
+            Allow: allowedMethods.join(", "),
+          }),
+        );
+      }
       return this.runRequestWithoutScope(request, () =>
         this.responses.error(404, "Not found"),
       );
@@ -463,8 +513,8 @@ export class HttpAdapter {
         return this.handleRequestInContext(request, parsedPath, route);
       }
 
-      return this.runRequestWithoutScope(request, () =>
-        this.handleRequestInContext(request, parsedPath, route),
+      return this.runRequestWithoutScope(request, (controller) =>
+        this.handleRequestInContext(request, parsedPath, route, controller),
       );
     }
 
@@ -476,27 +526,38 @@ export class HttpAdapter {
   }
 
   private runRequestWithoutScope(
-    _request: Request,
-    callback: () => Response | Promise<Response>,
+    request: Request,
+    callback: (controller: AbortController) => Response | Promise<Response>,
   ): Response | Promise<Response> {
     if (!this.requests.tryEnter(this.requestConcurrency)) {
       return this.responses.error(503, "Request concurrency limit reached");
     }
 
+    const controller = new AbortController();
+    const abortFromRequest = () => controller.abort(request.signal.reason);
+    if (request.signal.aborted) abortFromRequest();
+    else
+      request.signal.addEventListener("abort", abortFromRequest, {
+        once: true,
+      });
+
     try {
-      const response = callback();
+      const response = callback(controller);
 
       if (isPromise(response)) {
         return response
           .then((value) => this.withRequestId(value))
           .finally(() => {
+            request.signal.removeEventListener("abort", abortFromRequest);
             this.requests.leave();
           });
       }
 
       this.requests.leave();
+      request.signal.removeEventListener("abort", abortFromRequest);
       return this.withRequestId(response);
     } catch (error) {
+      request.signal.removeEventListener("abort", abortFromRequest);
       this.requests.leave();
       throw error;
     }
@@ -553,6 +614,7 @@ export class HttpAdapter {
     request: Request,
     parsedPath: ParsedRequestPath,
     route: MatchedRoute,
+    controller?: AbortController,
   ): Response | Promise<Response> {
     const { pathname } = parsedPath;
 
@@ -578,6 +640,7 @@ export class HttpAdapter {
             }
           : handler,
         parsedPath.queryStart,
+        controller?.signal ?? tryRequestContext()?.signal ?? request.signal,
       );
     } catch {
       return this.responses.error(400, "Bad request");
@@ -587,10 +650,15 @@ export class HttpAdapter {
       (handler.needsBody || hasGlobalMiddleware) &&
       BODY_METHODS.has(request.method)
     ) {
-      return this.handleRequestBody(request, serverRequest, handler);
+      return this.handleRequestBody(
+        request,
+        serverRequest,
+        handler,
+        controller,
+      );
     }
 
-    return this.dispatchHandler(serverRequest, handler);
+    return this.dispatchHandler(serverRequest, handler, controller);
   }
 
   // -------------------------------------------------------------------------
@@ -684,7 +752,7 @@ export class HttpAdapter {
       throw new Error("Respostas estáticas não podem usar parâmetros de rota.");
     }
 
-    const body = JSON.stringify(value) ?? "null";
+    const body = serializeJson(value);
     const handler: ServerHandler = () => ({
       status: 200,
       body,

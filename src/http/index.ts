@@ -5,6 +5,7 @@ export type {
   MiddlewareFn,
   ServerHandler,
   ServerRequest,
+  HttpOptions,
 } from "./adapter-types";
 export { HttpResponseWriter } from "./http-response-writer";
 export { runMiddlewareChain } from "./middleware-chain";

@@ -94,6 +94,19 @@ describe("HttpAdapter", () => {
     ).toBe("options");
   });
 
+  test("responde 405 e Allow quando o caminho existe para outro método", async () => {
+    const adapter = new HttpAdapter();
+    adapter.get("/users", () => ({ status: 200, body: "ok" }));
+    adapter.post("/users", () => ({ status: 201, body: "created" }));
+
+    const response = await adapter.handleRequest(
+      new Request("http://localhost/users", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("Allow")).toBe("GET, HEAD, POST");
+  });
+
   test("registra texto e JSON estáticos", async () => {
     const adapter = new HttpAdapter();
 
@@ -253,6 +266,7 @@ describe("HttpAdapter", () => {
     adapter.setHandlerTimeout(5);
     adapter.setShutdownTimeout(20);
     let scopesCreated = 0;
+    let signal: AbortSignal | undefined;
     adapter.setRequestScopeFactory(() => {
       scopesCreated++;
       return new Container();
@@ -261,11 +275,15 @@ describe("HttpAdapter", () => {
     const original = new Promise<Response>((resolve) => {
       finish = () => resolve(new Response("late"));
     });
-    adapter.get("/never", () => original);
+    adapter.get("/never", (serverRequest) => {
+      signal = serverRequest.signal;
+      return original;
+    });
 
     const response = await adapter.handleRequest(request("/never"));
     expect(response.status).toBe(504);
     expect(scopesCreated).toBe(0);
+    expect(signal?.aborted).toBe(true);
 
     const started = performance.now();
     await expect(adapter.close()).rejects.toThrow("Timeout ao drenar");
@@ -357,7 +375,7 @@ describe("HttpAdapter", () => {
     adapter.setRequestScopeFactory(() => {
       throw new Error("scope failed");
     });
-    adapter.use(async (_request, next) => next());
+    adapter.useMiddleware(async (_request, next) => next());
     adapter.get("/scope", () => ({ status: 200, body: "ok" }));
 
     await expect(
@@ -592,6 +610,38 @@ describe("HttpAdapter", () => {
     expect(response.status).toBe(413);
   });
 
+  test("cancela stream sem Content-Length ao exceder o limite", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setMaxBodyBytes(5);
+
+    const bodyHandler = (req: { body: unknown }) => ({
+      status: 200,
+      body: JSON.stringify(req.body),
+    });
+    bodyHandler.needsBody = true;
+    adapter.post("/stream-limit", bodyHandler);
+
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array([49]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    const response = await adapter.handleRequest(
+      request("/stream-limit", {
+        method: "POST",
+        body: stream,
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+
   test("getFile não força content type JSON", async () => {
     const adapter = new HttpAdapter();
     adapter.getFile("/file", Bun.file("package.json"));
@@ -661,7 +711,7 @@ describe("HttpAdapter", () => {
     const adapter = new HttpAdapter();
     const order: string[] = [];
 
-    adapter.use(async (_req, next) => {
+    adapter.useMiddleware(async (_req, next) => {
       order.push("one");
 
       const response = await next();
@@ -671,7 +721,7 @@ describe("HttpAdapter", () => {
       return response;
     });
 
-    adapter.use(async (_req, next) => {
+    adapter.useMiddleware(async (_req, next) => {
       order.push("two");
 
       return next();
@@ -694,7 +744,7 @@ describe("HttpAdapter", () => {
 
     const stopped = new HttpAdapter();
 
-    stopped.use(async () => ({
+    stopped.useMiddleware(async () => ({
       status: 401,
       body: "stop",
     }));
@@ -710,7 +760,7 @@ describe("HttpAdapter", () => {
 
     const twice = new HttpAdapter();
 
-    twice.use(async (_req, next) => {
+    twice.useMiddleware(async (_req, next) => {
       await next();
 
       return next();
