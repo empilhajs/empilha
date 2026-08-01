@@ -23,6 +23,7 @@
   },
   "files": [
     "dist",
+    "scaffold",
     "scripts",
     "README.md"
   ],
