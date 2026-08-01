@@ -34,6 +34,21 @@ export class RequestTracker {
     this.resolveIdleWaitersIfIdle();
   }
 
+  /**
+   * Mantém o request rastreado até a operação original terminar.
+   *
+   * Usado quando o timeout responde 504 antes do handler concluir em rotas sem
+   * scope: o request continua em voo até a Promise original se resolver, para
+   * que o shutdown aguarde o handler e não encerre o processo no meio dele.
+   */
+  track(operation: PromiseLike<unknown>): void {
+    this.inFlight++;
+    void Promise.resolve(operation).then(
+      () => this.leave(),
+      () => this.leave(),
+    );
+  }
+
   trackScope(scope: RequestScope): void {
     this.active.add(scope);
   }

@@ -79,6 +79,7 @@ export { ErrorResponseSchema } from "./errors";
 
 export {
   requestContext,
+  tryRequestContext,
   waitForRequestTasks,
   type RequestScope,
 } from "./context";

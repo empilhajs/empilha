@@ -162,3 +162,18 @@ export function requestContext<TUser = unknown>(): RequestScope<TUser> {
   }
   return context as RequestScope<TUser>;
 }
+
+/**
+ * Retorna o escopo atual ou `undefined` fora de uma requisição contextual.
+ *
+ * Diferente de `requestContext()`, não lança erro quando não há contexto.
+ * Permite que o pipeline aplique cancelamento apenas quando o scope existe,
+ * mantendo o caminho sem escopo livre de AsyncLocalStorage.
+ *
+ * @returns O `RequestScope` ativo no AsyncLocalStorage, ou `undefined`.
+ */
+export function tryRequestContext<TUser = unknown>():
+  | RequestScope<TUser>
+  | undefined {
+  return storage.getStore() as RequestScope<TUser> | undefined;
+}

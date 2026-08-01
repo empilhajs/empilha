@@ -5,6 +5,7 @@ export {
   requestContext,
   releaseRequestScope,
   runWithRequestContext,
+  tryRequestContext,
   waitForRequestTasks,
   type RequestScope,
 } from "./request-context";

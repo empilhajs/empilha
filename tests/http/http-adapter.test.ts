@@ -248,7 +248,34 @@ describe("HttpAdapter", () => {
     await adapter.close();
   });
 
-  test("timeout do handler preserva o scope até a Promise original terminar", async () => {
+  test("timeout sem scope responde 504 e mantém o request rastreado até o fim", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(5);
+    adapter.setShutdownTimeout(20);
+    let scopesCreated = 0;
+    adapter.setRequestScopeFactory(() => {
+      scopesCreated++;
+      return new Container();
+    });
+    let finish!: () => void;
+    const original = new Promise<Response>((resolve) => {
+      finish = () => resolve(new Response("late"));
+    });
+    adapter.get("/never", () => original);
+
+    const response = await adapter.handleRequest(request("/never"));
+    expect(response.status).toBe(504);
+    expect(scopesCreated).toBe(0);
+
+    const started = performance.now();
+    await expect(adapter.close()).rejects.toThrow("Timeout ao drenar");
+    expect(performance.now() - started).toBeLessThan(100);
+
+    finish();
+    await adapter.close();
+  });
+
+  test("timeout preserva o scope até a Promise original terminar", async () => {
     const adapter = new HttpAdapter();
     adapter.setHandlerTimeout(5);
     adapter.setShutdownTimeout(20);
@@ -256,7 +283,9 @@ describe("HttpAdapter", () => {
     const original = new Promise<Response>((resolve) => {
       finish = () => resolve(new Response("late"));
     });
-    adapter.get("/never", () => original);
+    const handler = () => original;
+    Object.assign(handler, { requiresRequestContext: true });
+    adapter.get("/never", handler);
 
     const response = await adapter.handleRequest(request("/never"));
     expect(response.status).toBe(504);

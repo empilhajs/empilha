@@ -3,8 +3,8 @@ import { normalizeMethod, normalizePath } from "../router/path";
 import {
   abortRequestScope,
   createRequestScope,
-  requestContext,
   runWithRequestContext,
+  tryRequestContext,
   type RequestScope,
 } from "../context/index";
 import { Container } from "../di/index";
@@ -228,17 +228,32 @@ export class HttpAdapter {
       return response;
     }
 
-    const scope = requestContext();
-    // A resposta de timeout pode ser devolvida antes do handler terminar,
-    // mas o scope precisa permanecer vivo até a Promise original concluir.
-    // Caso contrário, dependências request-scoped podem ser descartadas em
-    // meio à execução do handler.
-    scope.waitUntil(response);
+    const scope = tryRequestContext();
 
-    return withTimeout(response, this.handlerTimeoutMs, () => {
-      abortRequestScope(scope, new Error("Handler timeout"));
-      return this.responses.error(504, "Handler timeout");
-    }).catch((error) => {
+    // A resposta de timeout pode ser devolvida antes do handler terminar, mas
+    // o scope precisa permanecer vivo até a Promise original concluir. Caso
+    // contrário, dependências request-scoped podem ser descartadas em meio à
+    // execução do handler.
+    if (scope) {
+      scope.waitUntil(response);
+
+      return withTimeout(response, this.handlerTimeoutMs, () => {
+        abortRequestScope(scope, new Error("Handler timeout"));
+        return this.responses.error(504, "Handler timeout");
+      }).catch((error) => {
+        this.logger.error(error, "Falha ao produzir resposta HTTP.");
+        return this.responses.error(500, "Internal server error");
+      });
+    }
+
+    // Sem scope o handler não enxerga um signal para abortar, então o timeout
+    // apenas responde 504. O request segue rastreado até a Promise original
+    // terminar para que o shutdown espere a execução em background.
+    this.requests.track(response);
+
+    return withTimeout(response, this.handlerTimeoutMs, () =>
+      this.responses.error(504, "Handler timeout"),
+    ).catch((error) => {
       this.logger.error(error, "Falha ao produzir resposta HTTP.");
       return this.responses.error(500, "Internal server error");
     });
@@ -352,7 +367,10 @@ export class HttpAdapter {
     handler: ConfiguredHandler,
   ): Promise<Response> {
     return this.bodyReader
-      .read(request, this.bodyReader.hasTimeout ? requestContext() : undefined)
+      .read(
+        request,
+        this.bodyReader.hasTimeout ? tryRequestContext() : undefined,
+      )
       .then((body) => {
         serverRequest.body = body;
         return this.dispatchHandler(serverRequest, handler);
@@ -433,10 +451,11 @@ export class HttpAdapter {
     // pipeline, isso evita que cada request deixe um conjunto de objetos
     // nativos aguardando o próximo ciclo de coleta do Bun.
     //
-    // O timeout padrão usa requestContext() para abortar o scope quando vence,
-    // portanto ele também exige um scope. Aplicações que desabilitam o timeout
-    // (como rotas estáticas e o benchmark) podem usar o caminho leve.
-    if (!handler.requiresRequestContext && this.handlerTimeoutMs === null) {
+    // O timeout do handler usa `withTimeout` sem depender do scope: quando o
+    // scope existe ele é abortado no vencimento, e sem ele o request segue
+    // rastreado até a Promise original concluir. Middleware global pode usar
+    // `requestContext()`, então a presença dele mantém o pipeline com escopo.
+    if (!handler.requiresRequestContext && this.middlewares.length === 0) {
       if (
         (handler.stateless || handler.synchronous) &&
         this.requestConcurrency === null
