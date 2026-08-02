@@ -1,0 +1,4 @@
+node_modules/
+scaffold/node_modules/
+.env
+scaffold/.env
