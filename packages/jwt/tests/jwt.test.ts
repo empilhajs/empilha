@@ -26,6 +26,19 @@ describe("@empilha/jwt", () => {
     ).rejects.toThrow("claims não correspondem");
   });
 
+  test("compila claims com o formato email fornecido pelo Empilha", async () => {
+    const access = jwt({
+      name: "email-access",
+      secret,
+      claims: t.Object({ email: t.String({ format: "email" }) }),
+    });
+
+    const token = await access.sign({ email: "ada@example.com" });
+    expect(await access.verify(token)).toMatchObject({
+      email: "ada@example.com",
+    });
+  });
+
   test("separa token inválido de claims inválidas sem expor detalhes", async () => {
     const typed = jwt({
       name: "typed-auth",

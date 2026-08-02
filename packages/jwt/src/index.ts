@@ -1,5 +1,5 @@
+import { FormatRegistry, type Static, type TSchema } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
-import type { Static, TSchema } from "@sinclair/typebox";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import {
   createToken,
@@ -47,6 +47,21 @@ export type IdentityOf<TAccess> =
 
 export type JwtPlugin<TPayload extends JwtClaims = JwtClaims> =
   DeclarativePlugin<undefined> & JwtService<TPayload>;
+
+function ensureJwtBuiltinFormats(): void {
+  if (!FormatRegistry.Has("email")) {
+    FormatRegistry.Set("email", (value) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+    );
+  }
+  if (!FormatRegistry.Has("date")) {
+    FormatRegistry.Set("date", (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return date.toISOString().startsWith(`${value}T`);
+    });
+  }
+}
 
 /** Verifica um refresh token e emite um novo access token sem copiar claims registradas. */
 export async function refreshAccessToken<
@@ -99,7 +114,7 @@ export function jwt<TClaimsSchema extends TSchema | undefined = undefined>(
     options.expiresIn ?? (tokenUse === "refresh" ? "7d" : "15m");
   const secret = secretBytes;
   const claimsValidator = options.claims
-    ? TypeCompiler.Compile(options.claims)
+    ? (ensureJwtBuiltinFormats(), TypeCompiler.Compile(options.claims))
     : undefined;
   const token = createToken<JwtService<ClaimsPayload<TClaimsSchema>>>(
     `@empilha/jwt/${name}`,

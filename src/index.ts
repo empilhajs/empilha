@@ -16,6 +16,10 @@ export {
 } from "./core/empilha";
 
 export { compileNamedSQL, postgresRunner } from "./sql";
+export {
+  ensureBuiltinFormats,
+  type FormatRegistryLike,
+} from "./schema/formats";
 
 export {
   defineConfig,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 describe("builtin schema formats", () => {
-  test("registra email somente quando um schema é compilado", () => {
+  test("registra os formatos internos somente quando um schema é compilado", () => {
     const source = `
       import { FormatRegistry, Type } from "@sinclair/typebox";
       console.log(FormatRegistry.Has("email"));
@@ -9,6 +9,8 @@ describe("builtin schema formats", () => {
       console.log(FormatRegistry.Has("email"));
       compileValidator(Type.String({ format: "email" }));
       console.log(FormatRegistry.Has("email"));
+      compileValidator(Type.String({ format: "date" }));
+      console.log(FormatRegistry.Has("date"));
     `;
     const result = Bun.spawnSync({
       cmd: [process.execPath, "-e", source],
@@ -20,6 +22,7 @@ describe("builtin schema formats", () => {
     expect(new TextDecoder().decode(result.stdout).trim().split("\n")).toEqual([
       "false",
       "false",
+      "true",
       "true",
     ]);
   });
