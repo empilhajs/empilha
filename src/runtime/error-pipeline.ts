@@ -1,11 +1,7 @@
-import {
-  HttpError,
-  ValidationError,
-  type ValidationIssue,
-} from "../errors/index";
+import { HttpError, ValidationError, type ValidationIssue } from "../errors";
 import type { ServerResponse } from "../http/http-adapter";
-import { getCatchHandler } from "../metadata";
-import type { MetadataRegistry } from "../metadata";
+import { getCatchHandler } from "../core/metadata";
+import type { MetadataRegistry } from "../core/metadata";
 import type { ControllerInstance } from "../compiler/types";
 import { serializeJson } from "../utils/serialize-json";
 
@@ -35,19 +31,45 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
   );
 }
 
-/** Cria uma resposta HTTP JSON com status e mensagem de erro. */
+const PROBLEM_CONTENT_TYPE = "application/problem+json";
+const INTERNAL_SERVER_ERROR = "Internal server error";
+
+type ProblemDetails = {
+  readonly type: string;
+  readonly title: string;
+  readonly status: number;
+  readonly detail?: string;
+  readonly errors?: readonly ValidationIssue[];
+};
+
+function problemDetails(
+  status: number,
+  message: string,
+  errors?: readonly ValidationIssue[],
+): ProblemDetails {
+  return {
+    type: "about:blank",
+    title: message,
+    status,
+    ...(errors && errors.length > 0 ? { errors } : {}),
+  };
+}
+
+function publicErrorMessage(status: number, message: string): string {
+  return process.env.NODE_ENV === "production" && status >= 500
+    ? INTERNAL_SERVER_ERROR
+    : message;
+}
+
+/** Cria uma resposta HTTP RFC 9457 com status e mensagem de erro. */
 export function createErrorResponse(
   status: number,
   message: string,
 ): ServerResponse {
   return {
     status,
-    body: serializeJson(
-      {
-        error: message,
-      },
-      true,
-    ),
+    body: serializeJson(problemDetails(status, message), true),
+    headers: { "Content-Type": PROBLEM_CONTENT_TYPE },
   };
 }
 
@@ -85,11 +107,10 @@ function defaultErrorResponse(error: unknown): ServerResponse {
     return {
       status: 400,
       body: serializeJson(
-        {
-          errors: error.errors,
-        },
+        problemDetails(400, "Validation failed", error.errors),
         true,
       ),
+      headers: { "Content-Type": PROBLEM_CONTENT_TYPE },
     };
   }
 
@@ -98,12 +119,19 @@ function defaultErrorResponse(error: unknown): ServerResponse {
 
     return {
       status: 400,
-      body: serializeJson({ errors }, true),
+      body: serializeJson(
+        problemDetails(400, "Validation failed", errors),
+        true,
+      ),
+      headers: { "Content-Type": PROBLEM_CONTENT_TYPE },
     };
   }
 
   if (error instanceof HttpError) {
-    return createErrorResponse(error.status, error.message);
+    return createErrorResponse(
+      error.status,
+      publicErrorMessage(error.status, error.message),
+    );
   }
 
   if (isRecord(error)) {
@@ -117,14 +145,17 @@ function defaultErrorResponse(error: unknown): ServerResponse {
     ) {
       return createErrorResponse(
         status,
-        typeof error.message === "string"
-          ? error.message
-          : "Internal server error",
+        publicErrorMessage(
+          status,
+          typeof error.message === "string"
+            ? error.message
+            : INTERNAL_SERVER_ERROR,
+        ),
       );
     }
   }
 
-  return createErrorResponse(500, "Internal server error");
+  return createErrorResponse(500, INTERNAL_SERVER_ERROR);
 }
 
 /** Registra catchers e converte falhas do framework em respostas HTTP. */

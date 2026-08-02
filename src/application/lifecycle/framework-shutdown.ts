@@ -1,7 +1,7 @@
-import type { Container } from "../di";
-import type { HttpAdapter } from "../http";
-import { logFrameworkError } from "../utils/logger";
-import { withTimeout } from "../utils/timeout";
+import type { Container } from "../../di";
+import type { HttpAdapter } from "../../http";
+import { logFrameworkError } from "../../utils/logger";
+import { withTimeout } from "../../utils/timeout";
 
 export type CloseHook = () => void | Promise<void>;
 

@@ -1,7 +1,6 @@
 export type ApplicationPhase =
   | "configuring"
-  | "validated"
-  | "initialized"
+  | "ready"
   | "listening"
   | "failed"
   | "closed";
@@ -25,11 +24,7 @@ export class ApplicationLifecycle {
 
   /** Hooks de início ainda fazem sentido até o servidor começar a escutar. */
   assertBeforeListening(action: string): void {
-    if (
-      this.currentPhase !== "configuring" &&
-      this.currentPhase !== "validated" &&
-      this.currentPhase !== "initialized"
-    ) {
+    if (this.currentPhase !== "configuring" && this.currentPhase !== "ready") {
       throw new Error(`${action} deve ser chamado antes de app.listen().`);
     }
   }
@@ -41,19 +36,11 @@ export class ApplicationLifecycle {
     }
   }
 
-  validate(operation: AsyncOperation): void {
-    this.assertConfiguring("validate()");
-    operation();
-    this.currentPhase = "validated";
-  }
-
-  initialize(operation: AsyncOperation): void {
-    if (this.currentPhase !== "validated") {
-      throw new Error("initialize() deve ser chamado durante o bootstrap.");
-    }
+  activate(operation: AsyncOperation): void {
+    this.assertConfiguring("createApplication()");
     try {
       operation();
-      this.currentPhase = "initialized";
+      this.currentPhase = "ready";
     } catch (error) {
       this.currentPhase = "failed";
       throw error;
@@ -65,8 +52,10 @@ export class ApplicationLifecycle {
     startHooks: readonly AsyncOperation[],
     close: AsyncOperation,
   ): Promise<void> {
-    if (this.currentPhase !== "initialized") {
-      throw new Error("Chame app.initialize([...]) antes de app.listen().");
+    if (this.currentPhase !== "ready") {
+      throw new Error(
+        "A aplicação precisa estar pronta antes de app.listen().",
+      );
     }
 
     try {

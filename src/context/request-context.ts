@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Container } from "../di/index";
+import type { Container } from "../di";
 import type { QueryClient } from "../sql/postgres-executor";
 import { createRequestId } from "../http/request-id";
+import type { RequestIdGenerator } from "../di";
 
 /**
  * Estado contextual compartilhado durante uma requisição.
@@ -39,6 +40,7 @@ const requestAbortListeners = new WeakMap<RequestScope, () => void>();
 export function createRequestScope(
   request: Request,
   container: Container,
+  requestIdGenerator: RequestIdGenerator = createRequestId,
 ): RequestScope {
   let requestId: string | undefined;
   let tasks: Set<Promise<unknown>> | undefined;
@@ -46,7 +48,7 @@ export function createRequestScope(
 
   const scope: RequestScope = {
     get requestId() {
-      return (requestId ??= createRequestId());
+      return (requestId ??= requestIdGenerator());
     },
     request,
     container,

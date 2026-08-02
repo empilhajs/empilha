@@ -6,6 +6,7 @@ export type {
   ServerHandler,
   ServerRequest,
   HttpOptions,
+  NativeRouteEligibility,
 } from "./adapter-types";
 export { HttpResponseWriter } from "./http-response-writer";
 export { runMiddlewareChain } from "./middleware-chain";

@@ -5,12 +5,10 @@ const ValidationIssueSchema = Type.Object({
   message: Type.String(),
 });
 
-/** Contrato das respostas de erro HTTP e de validação do framework. */
-export const ErrorResponseSchema = Type.Union([
-  Type.Object({
-    error: Type.String(),
-  }),
-  Type.Object({
-    errors: Type.Array(ValidationIssueSchema),
-  }),
-]);
+/** Contrato RFC 9457 das respostas de erro do framework. */
+export const ErrorResponseSchema = Type.Object({
+  type: Type.String(),
+  title: Type.String(),
+  status: Type.Integer(),
+  errors: Type.Optional(Type.Array(ValidationIssueSchema)),
+});

@@ -1,11 +1,12 @@
 import type { TSchema } from "@sinclair/typebox";
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 import type {
   ParameterMetadata,
   ParameterSource,
   ParameterValidator,
   RouteMetadata,
-} from "../types";
+  IdentityAccess,
+} from "../core/types";
 import { compileValidator } from "./validation";
 
 type ParameterType = Function | TSchema;
@@ -190,6 +191,19 @@ export function Context(): ParameterDecorator {
  *   return user
  * }
  */
-export function Identity(): ParameterDecorator {
-  return createParameterDecorator("auth");
+export function Identity<TAccess extends IdentityAccess = IdentityAccess>(
+  access?: TAccess,
+): ParameterDecorator {
+  if (access !== undefined && (typeof access !== "object" || access === null)) {
+    throw new TypeError("O acesso de identidade precisa ser um descritor.");
+  }
+
+  const decorator = createParameterDecorator("auth", undefined, access?.claims);
+  return (target, propertyKey, parameterIndex) => {
+    decorator(target, propertyKey, parameterIndex);
+    if (propertyKey === undefined) return;
+    const route = getOrCreateRoute(target, propertyKey);
+    route.identity = access?.name;
+    route.identitySchema = access?.claims;
+  };
 }

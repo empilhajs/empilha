@@ -1,4 +1,4 @@
-import { registerCatchHandler } from "../metadata";
+import { registerCatchHandler } from "../core/metadata";
 
 type ErrorConstructor = new (...args: any[]) => Error;
 

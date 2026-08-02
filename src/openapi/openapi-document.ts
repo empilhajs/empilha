@@ -1,5 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
-import type { ParameterMetadata, RegisteredRouteMetadata } from "../types";
+import type { ParameterMetadata, RegisteredRouteMetadata } from "../core/types";
 import { statusCode } from "../compiler/response-compiler";
 import { ErrorResponseSchema } from "../errors";
 
@@ -38,6 +38,26 @@ function parametersForQuerySchema(
         ? { default: route.queryDefaults[name] }
         : {}),
     },
+  }));
+}
+
+function parametersForHeaderSchema(
+  route: RegisteredRouteMetadata,
+): OpenApiParameter[] {
+  const schema = route.headerSchema as
+    | (TSchema & {
+        properties?: Record<string, TSchema>;
+        required?: string[];
+      })
+    | undefined;
+  if (!schema?.properties) return [];
+
+  const required = new Set(schema.required ?? []);
+  return Object.entries(schema.properties).map(([name, property]) => ({
+    name,
+    in: "header",
+    required: required.has(name),
+    schema: property,
   }));
 }
 
@@ -123,6 +143,7 @@ function parametersForRoute(
   if (
     route.parameters.length === 0 &&
     route.querySchema === undefined &&
+    route.headerSchema === undefined &&
     !path.includes(":")
   ) {
     return [];
@@ -156,6 +177,15 @@ function parametersForRoute(
   );
   for (const parameter of parametersForQuerySchema(route)) {
     if (!declaredQueries.has(parameter.name)) parameters.push(parameter);
+  }
+
+  const declaredHeaders = new Set(
+    parameters
+      .filter((parameter) => parameter.in === "header")
+      .map((parameter) => parameter.name),
+  );
+  for (const parameter of parametersForHeaderSchema(route)) {
+    if (!declaredHeaders.has(parameter.name)) parameters.push(parameter);
   }
 
   const declared = new Set(
@@ -198,6 +228,7 @@ const JSON_RESPONSE_NO_SCHEMA: OpenApiResponse = Object.freeze({
 function responseForRoute(
   route: RegisteredRouteMetadata,
   status: number,
+  schema = route.responses?.[String(status)] ?? route.responseSchema,
 ): OpenApiResponse {
   if (status === 204) {
     return NO_CONTENT_RESPONSE;
@@ -205,7 +236,7 @@ function responseForRoute(
 
   const mediaType = route.contentType ?? "application/json";
 
-  if (!route.responseSchema) {
+  if (!schema) {
     if (mediaType === "application/json") return JSON_RESPONSE_NO_SCHEMA;
     return {
       description: "Successful response",
@@ -219,7 +250,7 @@ function responseForRoute(
     description: "Successful response",
     content: {
       [mediaType]: {
-        schema: route.responseSchema,
+        schema,
       },
     },
   };
@@ -229,7 +260,7 @@ function errorResponse(description: string): OpenApiResponse {
   return {
     description,
     content: {
-      "application/json": {
+      "application/problem+json": {
         schema: ErrorResponseSchema,
       },
     },
@@ -297,6 +328,20 @@ function responsesForRoute(
   route: RegisteredRouteMetadata,
   status: number,
 ): Record<string, OpenApiResponse> {
+  if (route.responses) {
+    const responses: Record<string, OpenApiResponse> = {
+      ...errorResponsesForRoute(route),
+      [String(status)]: responseForRoute(route, status),
+    };
+    for (const [declaredStatus, schema] of Object.entries(route.responses)) {
+      responses[declaredStatus] = responseForRoute(
+        route,
+        Number(declaredStatus),
+        schema,
+      );
+    }
+    return responses;
+  }
   const mediaType = route.contentType ?? "application/json";
   const hasAuth = route.auth || route.requiresAuth ? 1 : 0;
   const notFound = route.sqlOnEmpty === "notFound" ? 1 : 0;

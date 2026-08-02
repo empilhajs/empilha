@@ -3,14 +3,16 @@ import type {
   HttpAdapter,
   ServerHandler,
   ServerResponse,
-} from "../http";
-import { joinPaths } from "../router";
-import type { MetadataRegistry } from "../metadata";
-import type { RegisteredRouteMetadata, HttpMethod } from "../types";
-import type { OpenApiDocumentBuilder } from "../openapi";
-import type { ControllerInstance } from "../compiler/types";
-import type { PostgresExecutor } from "../sql";
-import type { AuthorizationService } from "../runtime";
+} from "../../http";
+import { joinPaths } from "../../router";
+import type { MetadataRegistry } from "../../core/metadata";
+import type { RegisteredRouteMetadata, HttpMethod } from "../../core/types";
+import type { OpenApiDocumentBuilder } from "../../openapi";
+import type { ControllerInstance } from "../../compiler/types";
+import type { PostgresExecutor } from "../../sql";
+import type { QueryRegistry } from "../../sql";
+import type { AuthorizationService } from "../../runtime";
+import { Type } from "@sinclair/typebox";
 import { ControllerBootstrap } from "./controller-bootstrap";
 import {
   RouteHandlerBuilder,
@@ -37,6 +39,7 @@ type Dependencies = {
   metadata: MetadataRegistry;
   openApi: OpenApiDocumentBuilder;
   postgres: PostgresExecutor;
+  queries: QueryRegistry;
   authorization: AuthorizationService;
   bootstrap: ControllerBootstrap;
   handlerBuilder: RouteHandlerBuilder;
@@ -55,7 +58,7 @@ type PreparedRoute = {
 export class ControllerRegistry {
   constructor(private readonly deps: Dependencies) {}
 
-  initialize(controllers: readonly ControllerConstructor[]): void {
+  register(controllers: readonly ControllerConstructor[]): void {
     this.deps.metadata.snapshot(controllers);
     const prepared: PreparedRoute[] = [];
 
@@ -108,6 +111,33 @@ export class ControllerRegistry {
           requiresAuth: route.requiresAuth || context.auth === true,
         };
 
+        if (
+          effectiveRoute.responseSchema === undefined &&
+          effectiveRoute.queryArtifact?.row !== undefined &&
+          effectiveRoute.sqlResult !== "none"
+        ) {
+          effectiveRoute.responseSchema =
+            effectiveRoute.sqlResult === "many"
+              ? Type.Array(effectiveRoute.queryArtifact.row)
+              : effectiveRoute.queryArtifact.row;
+        }
+
+        if (effectiveRoute.queryArtifact) {
+          this.deps.queries.registerGeneratedQuery(
+            effectiveRoute.queryArtifact,
+          );
+          const expected =
+            effectiveRoute.queryArtifact.cardinality === "exec"
+              ? "none"
+              : effectiveRoute.queryArtifact.cardinality;
+          if (effectiveRoute.sqlResult !== expected) {
+            throw new Error(
+              `A query gerada "${effectiveRoute.queryArtifact.id}" declara cardinalidade "${effectiveRoute.queryArtifact.cardinality}", ` +
+                `mas a rota usa @Result("${effectiveRoute.sqlResult ?? "ausente"}").`,
+            );
+          }
+        }
+
         this.assertRouteHooks(controller, effectiveRoute);
         this.assertAuthorization(effectiveRoute);
         if (
@@ -153,6 +183,17 @@ export class ControllerRegistry {
   ): void {
     const prototype = controller.prototype as Record<PropertyKey, unknown>;
     const endpoint = `${String(route.propertyKey)} (${route.method} ${route.path})`;
+
+    if (
+      route.sqlResult !== undefined &&
+      route.queryName === undefined &&
+      route.queryArtifact === undefined
+    ) {
+      throw new Error(
+        `A rota ${endpoint} usa @Result("${route.sqlResult}"), mas não possui @Sql(). ` +
+          "Associe uma query SQL antes de declarar sua cardinalidade.",
+      );
+    }
 
     for (const [kind, propertyKey] of [
       ["BeforeSql", route.beforeSql],

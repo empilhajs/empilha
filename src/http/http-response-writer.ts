@@ -97,10 +97,17 @@ export class HttpResponseWriter {
     headers?: Record<string, string>,
   ): Response {
     return Response.json(
-      { error: message },
+      {
+        type: "about:blank",
+        title: message,
+        status,
+      },
       {
         status,
-        headers: this.buildHeaders(headers),
+        headers: this.buildHeaders({
+          "Content-Type": "application/problem+json",
+          ...headers,
+        }),
       },
     );
   }

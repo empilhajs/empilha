@@ -1,4 +1,4 @@
-import { requestLogger, type MiddlewareFn, type ServerResponse } from "./http";
+import { requestLogger, type MiddlewareFn, type ServerResponse } from "../http";
 import {
   loadSQL,
   postgresRunner,
@@ -6,44 +6,59 @@ import {
   type PostgresPool,
   type ManagedPostgresPool,
   type QueryExecutionOptions,
-} from "./sql";
-import { type Constructor, type DependencyToken, type Provider } from "./di";
+} from "../sql";
+import {
+  Container,
+  CLOCK,
+  REQUEST_ID_GENERATOR,
+  type Constructor,
+  type Clock,
+  type DependencyToken,
+  type Provider,
+  type RequestIdGenerator,
+} from "../di";
 import type {
   AuthTokenHandler,
   BackgroundSchedulerOptions,
   RoleHierarchy,
-} from "./runtime";
-import { createTestClient, type TestClient } from "./application/test-client";
-import { type EmpilhaPlugin, type PluginContext } from "./application/plugin";
-import { ControllerRegistry } from "./application/controller-registry";
-import { ControllerBootstrap } from "./application/controller-bootstrap";
-import { RouteHandlerBuilder } from "./application/route-handler-builder";
+} from "../runtime";
+import type { GeneratedQuery } from "../sql/generated-query";
+import {
+  createTestClient,
+  type TestClient,
+} from "../application/testing/test-client";
+import { tryRequestContext } from "../context";
+import { ControllerRegistry } from "../application/bootstrap/controller-registry";
+import { ControllerBootstrap } from "../application/bootstrap/controller-bootstrap";
+import { RouteHandlerBuilder } from "../application/bootstrap/route-handler-builder";
 export type {
   TestClient,
   TestRawRequestOptions,
   TestRequestOptions,
-} from "./application/test-client";
+} from "../application/testing/test-client";
 import {
   OPENAPI_DOCUMENT_PATH,
   OPENAPI_UI_PATH,
   type OpenApiOptions,
   openApiHtml,
-} from "./openapi";
-import { ApplicationContext } from "./application/services";
+} from "../openapi";
+import { ApplicationContext } from "../application/services";
 import {
   closeEmpilhaResources,
   type CloseHook,
-} from "./application/framework-shutdown";
-import type { ControllerInstance } from "./compiler";
-import { invokeController } from "./utils/controller";
-import { ApplicationRunner } from "./application/application-runner";
-import type { HealthCheckOptions } from "./application/health-checks";
-import { validateTimeout } from "./http/adapter-helpers";
-import type { Logger } from "./utils/logger";
+} from "../application/lifecycle/framework-shutdown";
+import type { ControllerInstance } from "../compiler";
+import { invokeController } from "../utils/controller";
+import { ApplicationRunner } from "../application/lifecycle/application-runner";
+import type { HealthCheckOptions } from "../application/lifecycle/health-checks";
+import { validateTimeout } from "../http/adapter-helpers";
+import { createRequestId } from "../http/request-id";
+import type { Logger } from "../utils/logger";
 import type {
   CorsOptions as AdapterCorsOptions,
   HttpOptions as AdapterHttpOptions,
-} from "./http/adapter-types";
+  NativeRouteEligibility,
+} from "../http/adapter-types";
 
 export type {
   ManagedPostgresPool,
@@ -65,7 +80,7 @@ export type HttpOptions = AdapterHttpOptions & {
 
 export type CorsOptions = AdapterCorsOptions;
 
-export type { HealthCheckOptions } from "./application/health-checks";
+export type { HealthCheckOptions } from "../application/lifecycle/health-checks";
 
 export type RunOptions = {
   port?: number;
@@ -78,7 +93,6 @@ export type EmpilhaRuntimeConfig = {
   health?: HealthCheckOptions;
   openapi?: OpenApiOptions | false;
   middleware?: MiddlewareFn[];
-  plugins?: EmpilhaPlugin[];
   auth?: {
     hierarchy?: RoleHierarchy;
   };
@@ -97,7 +111,6 @@ export type ControllerConstructor<TInstance extends object = object> = new (
   ...args: never[]
 ) => TInstance;
 
-type LifecycleHook = (controllers: readonly ControllerConstructor[]) => void;
 type StartHook = () => void | Promise<void>;
 type ErrorHandler = (
   error: unknown,
@@ -106,69 +119,173 @@ type ErrorHandler = (
 
 type GlobalCatchHandler = (error: unknown) => unknown | Promise<unknown>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function assertConfigObject(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new TypeError(`A configuração ${name} deve ser um objeto.`);
+  }
+}
+
+function assertRuntimeConfig(config: EmpilhaRuntimeConfig): void {
+  assertConfigObject(config, "runtime");
+  if (config.server !== undefined) {
+    assertConfigObject(config.server, "server");
+    if (config.server.port !== undefined) {
+      const port = config.server.port;
+      if (!Number.isInteger(port) || port < 0 || port > 65_535)
+        throw new RangeError("A porta do servidor deve estar entre 0 e 65535.");
+    }
+    if (
+      config.server.signals !== undefined &&
+      typeof config.server.signals !== "boolean"
+    ) {
+      throw new TypeError("server.signals deve ser booleano.");
+    }
+  }
+  if (config.http !== undefined) assertConfigObject(config.http, "http");
+  if (config.health !== undefined) assertConfigObject(config.health, "health");
+  if (config.openapi !== undefined && config.openapi !== false)
+    assertConfigObject(config.openapi, "openapi");
+  if (config.middleware !== undefined) {
+    if (
+      !Array.isArray(config.middleware) ||
+      config.middleware.some((middleware) => typeof middleware !== "function")
+    ) {
+      throw new TypeError("middleware deve ser uma lista de funções.");
+    }
+  }
+  if (config.auth !== undefined) assertConfigObject(config.auth, "auth");
+  if (config.backgroundJobs !== undefined)
+    assertConfigObject(config.backgroundJobs, "backgroundJobs");
+  if (
+    config.onBackgroundError !== undefined &&
+    typeof config.onBackgroundError !== "function"
+  ) {
+    throw new TypeError("onBackgroundError deve ser uma função.");
+  }
+  if (config.validation !== undefined) {
+    assertConfigObject(config.validation, "validation");
+    if (
+      config.validation.responses !== undefined &&
+      typeof config.validation.responses !== "boolean"
+    ) {
+      throw new TypeError("validation.responses deve ser booleano.");
+    }
+  }
+  if (config.logging !== undefined) {
+    assertConfigObject(config.logging, "logging");
+    if (
+      config.logging.requests !== undefined &&
+      typeof config.logging.requests !== "boolean"
+    ) {
+      throw new TypeError("logging.requests deve ser booleano.");
+    }
+  }
+}
+
 export type BackgroundJobsOptions = BackgroundSchedulerOptions;
 
-export class Empilha {
-  private readonly context = new ApplicationContext();
+const activateRuntime = Symbol("empilha.application.activate");
 
-  private readonly http = this.context.http;
+export class ApplicationRuntime {
+  private readonly context: ApplicationContext;
 
-  readonly container = this.context.container;
+  private readonly http: ApplicationContext["http"];
 
-  private readonly metadata = this.context.metadata;
+  readonly container: Container;
 
-  private readonly lifecycle = this.context.lifecycle;
+  private readonly metadata: ApplicationContext["metadata"];
 
-  private readonly postgresExecutor = this.context.postgres;
+  private readonly lifecycle: ApplicationContext["lifecycle"];
 
-  private readonly queries = this.context.queries;
+  private readonly postgresExecutor: ApplicationContext["postgres"];
+
+  private readonly queries: ApplicationContext["queries"];
 
   private validateResponses = process.env.NODE_ENV !== "production";
 
   private disposalTimeoutMs: number | null = 15_000;
 
-  private readonly background = this.context.background;
+  private readonly background: ApplicationContext["background"];
 
-  private readonly errors = this.context.errors;
+  private readonly errors: ApplicationContext["errors"];
 
-  private readonly healthChecks = this.context.healthChecks;
+  private readonly healthChecks: ApplicationContext["healthChecks"];
 
-  private readonly loggerService = this.context.logger;
+  private readonly loggerService: ApplicationContext["logger"];
+
+  readonly events: ApplicationContext["events"];
 
   private readonly closeHooks: CloseHook[] = [];
-
-  private readonly beforeValidateHooks: LifecycleHook[] = [];
-
-  private readonly afterInitializeHooks: LifecycleHook[] = [];
 
   private readonly startHooks: StartHook[] = [];
 
   private configuredRunOptions: RunOptions | undefined;
 
-  private readonly authorization = this.context.authorization;
+  private readonly authorization: ApplicationContext["authorization"];
 
-  private controllersRegistered = false;
+  private ready = false;
 
   private readonly runner: ApplicationRunner;
 
-  private validatedControllers: readonly ControllerConstructor[] | undefined;
-
-  private readonly openApiDocument = this.context.openApi;
-
-  private readonly pluginServices = this.context.pluginServices;
+  private readonly openApiDocument: ApplicationContext["openApi"];
 
   private openApiRoutesRegistered = false;
 
   private readonly controllerRegistry: ControllerRegistry;
 
-  constructor() {
+  /** Entrada Web Standards usada pelo servidor e pela testing application. */
+  readonly fetch = (request: Request): Promise<Response> =>
+    Promise.resolve(this.http.handleRequest(request));
+
+  get url(): URL | null {
+    return this.http.url;
+  }
+
+  constructor(container?: Container) {
+    this.context = new ApplicationContext(container);
+    this.http = this.context.http;
+    this.container = this.context.container;
+    this.metadata = this.context.metadata;
+    this.lifecycle = this.context.lifecycle;
+    this.postgresExecutor = this.context.postgres;
+    this.queries = this.context.queries;
+    this.background = this.context.background;
+    this.errors = this.context.errors;
+    this.healthChecks = this.context.healthChecks;
+    this.loggerService = this.context.logger;
+    this.events = this.context.events;
+    this.authorization = this.context.authorization;
+    this.openApiDocument = this.context.openApi;
+    const clock: Clock = this.container.has(CLOCK)
+      ? this.container.resolve(CLOCK)
+      : { now: () => performance.now() };
+    const requestIdGenerator: RequestIdGenerator = this.container.has(
+      REQUEST_ID_GENERATOR,
+    )
+      ? this.container.resolve(REQUEST_ID_GENERATOR)
+      : createRequestId;
+    this.http.setClock(clock);
+    this.http.setRequestIdGenerator(requestIdGenerator);
+    this.background.setClock(clock);
     const bootstrap = new ControllerBootstrap(this.container);
     const handlerBuilder = new RouteHandlerBuilder(
       this.postgresExecutor,
       this.queries,
       this.background,
       this.authorization,
-      (name) => this.getPluginService(name),
+      this.events,
+      clock,
+      (token) => {
+        const scope = tryRequestContext();
+        return (scope?.container ?? this.container).resolve(token);
+      },
       () => this.validateResponses,
     );
     this.controllerRegistry = new ControllerRegistry({
@@ -176,6 +293,7 @@ export class Empilha {
       metadata: this.metadata,
       openApi: this.openApiDocument,
       postgres: this.postgresExecutor,
+      queries: this.queries,
       authorization: this.authorization,
       bootstrap,
       handlerBuilder,
@@ -185,7 +303,7 @@ export class Empilha {
     this.http.setErrorHandler((error) => this.handleAdapterError(error));
     this.runner = new ApplicationRunner({
       lifecycle: this.lifecycle,
-      isInitialized: () => this.controllersRegistered,
+      isReady: () => this.ready,
       listen: (port) => this.http.listen(port),
       close: () => this.close(),
       startHooks: this.startHooks,
@@ -209,6 +327,7 @@ export class Empilha {
   /** Aplica a configuração operacional centralizada do projeto. */
   configure(config: EmpilhaRuntimeConfig): this {
     this.assertConfiguring("configure()");
+    assertRuntimeConfig(config);
 
     if (config.server !== undefined) this.configuredRunOptions = config.server;
     if (config.http !== undefined) this.configureHttp(config.http);
@@ -217,7 +336,6 @@ export class Empilha {
       this.openapi(config.openapi);
     for (const middleware of config.middleware ?? [])
       this.useMiddleware(middleware);
-    for (const plugin of config.plugins ?? []) this.usePlugin(plugin);
     if (config.auth?.hierarchy !== undefined)
       this.authHierarchy(config.auth.hierarchy);
     if (config.backgroundJobs !== undefined)
@@ -247,7 +365,17 @@ export class Empilha {
     options: PostgresOptions = {},
   ): this {
     this.assertConfiguring("postgres()");
-    const runner = "end" in pool ? postgresRunner(pool as PostgresPool) : pool;
+    const managedPool = "end" in pool ? (pool as ManagedPostgresPool) : null;
+    if (
+      managedPool &&
+      !managedPool.queryWithOptions &&
+      options.timeout !== null
+    ) {
+      throw new Error(
+        "Pools PostgreSQL gerenciados precisam implementar queryWithOptions quando o timeout está habilitado. Use @empilha/pg ou configure timeout: null.",
+      );
+    }
+    const runner = managedPool ? postgresRunner(managedPool) : pool;
     this.postgresExecutor.setRunner(runner);
 
     if (options.sql) loadSQL(options.sql, this.queries);
@@ -258,10 +386,10 @@ export class Empilha {
     }
     if (
       options.close !== false &&
-      "end" in pool &&
-      typeof pool.end === "function"
+      managedPool &&
+      typeof managedPool.end === "function"
     ) {
-      this.onClose(() => pool.end!());
+      this.onClose(() => managedPool.end!());
     }
 
     return this;
@@ -303,7 +431,14 @@ export class Empilha {
     return this;
   }
 
+  registerGeneratedQuery(query: GeneratedQuery): this {
+    this.assertConfiguring("registerGeneratedQuery()");
+    this.queries.registerGeneratedQuery(query);
+    return this;
+  }
+
   openapi(options?: OpenApiOptions): this {
+    this.assertConfiguring("openapi()");
     this.openApiDocument.configure(options);
     this.registerOpenApiRoutes();
 
@@ -317,18 +452,6 @@ export class Empilha {
     return this;
   }
 
-  onBeforeValidate(hook: LifecycleHook): this {
-    this.assertConfiguring("onBeforeValidate()");
-    this.beforeValidateHooks.push(hook);
-    return this;
-  }
-
-  onAfterInitialize(hook: LifecycleHook): this {
-    this.assertConfiguring("onAfterInitialize()");
-    this.afterInitializeHooks.push(hook);
-    return this;
-  }
-
   onStart(hook: StartHook): this {
     this.lifecycle.assertBeforeListening("onStart()");
     this.startHooks.push(hook);
@@ -336,6 +459,7 @@ export class Empilha {
   }
 
   validateResponseSchemas(enabled = true): this {
+    this.assertConfiguring("validateResponseSchemas()");
     this.validateResponses = enabled;
 
     return this;
@@ -348,38 +472,17 @@ export class Empilha {
     return this;
   }
 
-  usePlugin(plugin: EmpilhaPlugin): this {
-    this.assertConfiguring("usePlugin()");
-    plugin.install(this as PluginContext);
-
-    return this;
-  }
-
-  registerPluginService<TService>(name: string, service: TService): void {
-    this.assertConfiguring("registerPluginService()");
-    if (this.pluginServices.has(name)) {
-      throw new Error(`O serviço de plugin "${name}" já foi registrado.`);
-    }
-    this.pluginServices.set(name, service);
-  }
-
-  private getPluginService(name: string): unknown {
-    const service = this.pluginServices.get(name);
-    if (service === undefined) {
-      throw new Error(`O serviço de plugin "${name}" não foi registrado.`);
-    }
-    return service;
-  }
-
   onBackgroundError(
     handler: (error: unknown, route: unknown) => void | Promise<void>,
   ): this {
+    this.assertConfiguring("onBackgroundError()");
     this.background.onError(handler);
 
     return this;
   }
 
   backgroundJobs(options: BackgroundJobsOptions): this {
+    this.assertConfiguring("backgroundJobs()");
     this.background.configure(options);
 
     return this;
@@ -391,8 +494,8 @@ export class Empilha {
       | ((signal?: AbortSignal) => boolean | Promise<boolean>)
       | PostgresQueryRunner,
   ): this {
+    this.assertConfiguring("healthCheck()");
     this.healthChecks.add(name, check);
-    if (this.controllersRegistered) this.healthChecks.registerRoute(this.http);
 
     return this;
   }
@@ -442,54 +545,27 @@ export class Empilha {
   // Registro e compilação de controllers
   // -------------------------------------------------------------------------
 
-  validate(controllers: ControllerConstructor[]): this {
-    this.lifecycle.validate(() => {
-      for (const hook of this.beforeValidateHooks) hook(controllers);
-      for (const controller of controllers) {
-        this.container.assertConstructible(controller);
-      }
-    });
-
-    this.validatedControllers = [...controllers];
-
-    return this;
-  }
-
-  initialize(controllers: ControllerConstructor[]): this {
-    if (this.lifecycle.phase === "configuring") {
-      this.validate(controllers);
-    } else if (
-      this.lifecycle.phase === "validated" &&
-      (this.validatedControllers?.length !== controllers.length ||
-        this.validatedControllers.some(
-          (controller, index) => controller !== controllers[index],
-        ))
-    ) {
-      throw new Error(
-        "initialize() deve receber os mesmos controllers usados em validate().",
-      );
-    }
-
+  [activateRuntime](controllers: readonly ControllerConstructor[]): void {
     this.http.beginRouteTransaction();
     this.openApiDocument.beginRouteTransaction();
 
-    this.lifecycle.initialize(() => {
+    this.lifecycle.activate(() => {
       try {
-        this.controllerRegistry.initialize(controllers);
+        for (const controller of controllers) {
+          this.container.assertConstructible(controller);
+        }
+        this.controllerRegistry.register(controllers);
         this.healthChecks.registerRoute(this.http);
-        this.controllersRegistered = true;
-        for (const hook of this.afterInitializeHooks) hook(controllers);
+        this.ready = true;
         this.http.commitRouteTransaction();
         this.openApiDocument.commitRouteTransaction();
       } catch (error) {
-        this.controllersRegistered = false;
+        this.ready = false;
         this.http.rollbackRouteTransaction();
         this.openApiDocument.rollbackRouteTransaction();
         throw error;
       }
     });
-
-    return this;
   }
 
   private registerOpenApiRoutes(): void {
@@ -522,6 +598,16 @@ export class Empilha {
     return createTestClient(this.http);
   }
 
+  /** Expõe as decisões do fast path calculadas durante o bootstrap. */
+  getNativeRouteEligibility(): readonly NativeRouteEligibility[] {
+    return this.http.getNativeRouteEligibility();
+  }
+
+  /** Resolve um token já ativado no contexto da aplicação. */
+  get<T>(token: DependencyToken<T>): T {
+    return this.container.resolve(token);
+  }
+
   async listen(port: number): Promise<void> {
     await this.runner.listen(port);
   }
@@ -545,14 +631,17 @@ export class Empilha {
       ),
     );
   }
+
+  /** Permite usar a aplicação com `await using` em testes e bootstrap. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
+  }
 }
 
-/** Cria uma aplicação inicializada para testes, sem abrir uma porta HTTP. */
-export function createTestApp(
-  controllers: ControllerConstructor[],
-  configure?: (app: Empilha) => void,
-): Empilha {
-  const app = new Empilha();
-  configure?.(app);
-  return app.initialize(controllers);
+/** Ativação interna usada exclusivamente pelo bootstrap baseado em módulos. */
+export function activateApplicationRuntime(
+  runtime: ApplicationRuntime,
+  controllers: readonly ControllerConstructor[],
+): void {
+  runtime[activateRuntime](controllers);
 }

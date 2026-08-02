@@ -1,9 +1,9 @@
-import type { HttpAdapter, ServerResponse } from "../http";
-import { createStringRecord } from "../utils";
-import type { PostgresQueryRunner } from "../sql";
-import { requestContext } from "../context";
-import { withTimeout } from "../utils/timeout";
-import { validateTimeout } from "../http/adapter-helpers";
+import type { HttpAdapter, ServerResponse } from "../../http";
+import { createStringRecord } from "../../utils";
+import type { PostgresQueryRunner } from "../../sql";
+import { requestContext } from "../../context";
+import { withTimeout } from "../../utils/timeout";
+import { validateTimeout } from "../../http/adapter-helpers";
 
 export type HealthCheckOptions = {
   /** Prazo individual de cada check, ou `null` para desabilitá-lo. */

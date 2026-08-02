@@ -5,8 +5,8 @@ export { AfterCommit } from "./after-commit";
 export { Catch } from "./errors";
 export { Inject } from "../di";
 export { Identity, Context, Header, Param, Query, Request } from "./parameters";
-export { QueryParams } from "./query-params";
-export { Produces, Returns, Status } from "./response";
+export { HeaderParams, QueryParams } from "./query-params";
+export { Produces, Responses, Returns, Status } from "./response";
 export {
   Controller,
   Delete,

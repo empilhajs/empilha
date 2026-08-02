@@ -1,5 +1,5 @@
-import { serializeJson } from "../utils/serialize-json";
-import { HttpAdapter } from "../http/http-adapter";
+import { serializeJson } from "../../utils/serialize-json";
+import { HttpAdapter } from "../../http/http-adapter";
 
 /** Opções de headers usadas pelo cliente de testes. */
 export type TestRequestOptions = {

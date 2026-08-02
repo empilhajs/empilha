@@ -1,15 +1,19 @@
 import { HttpAdapter } from "../http";
-import { createMetadataRegistry, type MetadataRegistry } from "../metadata";
+import {
+  createMetadataRegistry,
+  type MetadataRegistry,
+} from "../core/metadata";
 import { Container } from "../di";
 import {
   BackgroundScheduler,
   AuthorizationService,
   ErrorPipeline,
+  ApplicationEvents,
 } from "../runtime";
 import { OpenApiDocumentBuilder } from "../openapi";
 import { PostgresExecutor, QueryRegistry } from "../sql";
-import { ApplicationLifecycle } from "./lifecycle";
-import { HealthCheckRegistry } from "./health-checks";
+import { ApplicationLifecycle } from "./lifecycle/lifecycle";
+import { HealthCheckRegistry } from "./lifecycle/health-checks";
 import { ApplicationLogger } from "../utils/logger";
 
 export class ApplicationContext {
@@ -24,12 +28,12 @@ export class ApplicationContext {
   readonly authorization: AuthorizationService;
   readonly openApi: OpenApiDocumentBuilder;
   readonly healthChecks: HealthCheckRegistry;
-  readonly pluginServices: Map<string, unknown>;
   readonly logger: ApplicationLogger;
+  readonly events: ApplicationEvents;
 
-  constructor() {
+  constructor(container = new Container()) {
     this.http = new HttpAdapter();
-    this.container = new Container();
+    this.container = container;
     this.metadata = createMetadataRegistry();
     this.lifecycle = new ApplicationLifecycle();
     this.postgres = new PostgresExecutor();
@@ -39,9 +43,12 @@ export class ApplicationContext {
     this.authorization = new AuthorizationService();
     this.openApi = new OpenApiDocumentBuilder();
     this.healthChecks = new HealthCheckRegistry();
-    this.pluginServices = new Map();
     this.logger = new ApplicationLogger();
+    this.events = new ApplicationEvents();
+    this.events.setLogger(this.logger);
     this.http.setLogger(this.logger);
+    this.http.setEvents(this.events);
     this.background.setLogger(this.logger);
+    this.background.setEvents(this.events);
   }
 }

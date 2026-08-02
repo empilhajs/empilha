@@ -1,5 +1,5 @@
-import { HttpError } from "../errors/index";
-import type { TransactionMode } from "../types";
+import { HttpError } from "../errors";
+import type { TransactionMode } from "../core/types";
 import { withTimeout } from "../utils/timeout";
 
 /** Resultado mínimo esperado de uma query PostgreSQL. */
@@ -70,6 +70,20 @@ export type ManagedPostgresPool = PostgresPool & {
   end?(): void | Promise<void>;
 };
 
+function queryWithoutCancellation<T>(
+  query: () => Promise<T>,
+  options?: QueryExecutionOptions,
+): Promise<T> {
+  if (options?.signal) {
+    return Promise.reject(
+      new Error(
+        "O pool PostgreSQL não implementa queryWithOptions e não pode executar uma operação cancelável.",
+      ),
+    );
+  }
+  return query();
+}
+
 /**
  * Adapta um pool PostgreSQL comum ao runner do Empilha.
  *
@@ -85,7 +99,7 @@ export function postgresRunner(pool: PostgresPool): PostgresQueryRunner {
       query: (sql, params, options) =>
         client.queryWithOptions
           ? client.queryWithOptions(sql, params, options)
-          : client.query(sql, params),
+          : queryWithoutCancellation(() => client.query(sql, params), options),
       queryWithOptions: client.queryWithOptions,
       release: () => client.release(),
     };
@@ -95,7 +109,7 @@ export function postgresRunner(pool: PostgresPool): PostgresQueryRunner {
     query: (sql, params, options) =>
       pool.queryWithOptions
         ? pool.queryWithOptions(sql, params, options)
-        : pool.query(sql, params),
+        : queryWithoutCancellation(() => pool.query(sql, params), options),
     queryWithOptions: pool.queryWithOptions,
     connect: wrapClient,
   };

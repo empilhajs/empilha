@@ -3,16 +3,17 @@ import type {
   ParameterValidator,
   RouteMetadata,
   RouteRequest,
-} from "../types";
-import { requestContext } from "../context/index";
-import { ValidationError } from "../errors/index";
+} from "../core/types";
+import { requestContext } from "../context";
+import { ValidationError } from "../errors";
+import type { DependencyToken } from "../di";
 
 /**
  * Obtém o valor de um argumento a partir
  * dos dados completos da requisição.
  */
 type ArgumentGetter = (request: RouteRequest) => unknown;
-type PluginResolver = (name: string) => unknown;
+type DependencyResolver = (token: DependencyToken) => unknown;
 
 /**
  * Compila os argumentos de uma rota
@@ -172,17 +173,17 @@ function convertParameterValue(
 function readParameterValue(
   request: RouteRequest,
   parameter: ParameterMetadata,
-  resolvePlugin: PluginResolver | undefined,
+  resolveDependency: DependencyResolver | undefined,
 ): unknown {
   switch (parameter.source) {
     case "body":
       return request.body;
 
-    case "plugin":
-      if (!resolvePlugin) {
-        throw new Error("Nenhum resolvedor de plugins foi configurado.");
+    case "inject":
+      if (!resolveDependency || parameter.token === undefined) {
+        throw new Error("Nenhum resolvedor de dependências foi configurado.");
       }
-      return resolvePlugin(parameter.name as string);
+      return resolveDependency(parameter.token);
 
     case "request":
       return request;
@@ -218,10 +219,10 @@ function readParameterValue(
 function compileArgumentGetter(
   parameter: ParameterMetadata,
   validate?: ParameterValidator,
-  resolvePlugin?: PluginResolver,
+  resolveDependency?: DependencyResolver,
 ): ArgumentGetter {
   return (request) => {
-    const rawValue = readParameterValue(request, parameter, resolvePlugin);
+    const rawValue = readParameterValue(request, parameter, resolveDependency);
 
     const value = convertParameterValue(
       rawValue,
@@ -251,7 +252,7 @@ function compileArgumentGetter(
  */
 export function compileArgGetters(
   route: RouteMetadata,
-  resolvePlugin?: PluginResolver,
+  resolveDependency?: DependencyResolver,
 ): ArgumentCompiler {
   const parameters = prepareParameters(route);
 
@@ -259,7 +260,7 @@ export function compileArgGetters(
     compileArgumentGetter(
       parameter,
       route.validators?.get(parameter.index),
-      resolvePlugin,
+      resolveDependency,
     ),
   );
 

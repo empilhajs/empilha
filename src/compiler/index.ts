@@ -1,5 +1,9 @@
 export { compileArgGetters } from "./argument-compiler";
-export { compileResponseFactory, statusCode } from "./response-compiler";
+export {
+  compileResponseFactory,
+  normalizeResponseForRoute,
+  statusCode,
+} from "./response-compiler";
 export { compileRoute } from "./route-compiler";
 export type {
   ArgumentCompiler,
@@ -10,6 +14,7 @@ export type {
   ControllerResolver,
   ErrorHandler,
   ResponseFactory,
+  ResponseNormalizer,
   RouteCompilerInput,
   SqlExecutor,
 } from "./types";

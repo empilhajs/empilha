@@ -1,4 +1,4 @@
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 
 /** Define o método que prepara a requisição antes da query SQL da rota. */
 export function BeforeSql(method?: string | symbol): MethodDecorator {

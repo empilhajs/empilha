@@ -3,7 +3,7 @@ import { TypeCompiler } from "@sinclair/typebox/compiler";
 import type { ServerResponse } from "../http/http-adapter";
 import { compileResponseSerializer } from "../http/response-serializer";
 import { ensureBuiltinFormats } from "../schema/formats";
-import type { RouteMetadata } from "../types";
+import type { RouteMetadata } from "../core/types";
 
 /**
  * Cria uma resposta HTTP a partir do valor
@@ -15,6 +15,13 @@ type ValidationSetting = boolean | (() => boolean);
 
 function validationEnabled(setting: ValidationSetting): boolean {
   return typeof setting === "function" ? setting() : setting;
+}
+
+function responseSchemaForStatus(
+  route: RouteMetadata,
+  status: number,
+): TSchema | undefined {
+  return route.responses?.[String(status)] ?? route.responseSchema;
 }
 
 /**
@@ -70,6 +77,44 @@ function getCompiledSchema(schema: TSchema): CompiledResponseSchema {
   compiledSchemas.set(schema, compiled);
 
   return compiled;
+}
+
+/**
+ * Aplica o contrato de resposta declarado para um status produzido pelo
+ * error pipeline. Catchers e erros HTTP já devolvem uma resposta intermediária
+ * serializada; aqui ela volta a um valor JSON para receber a mesma validação e
+ * serialização das respostas de sucesso.
+ */
+export function normalizeResponseForRoute(
+  route: RouteMetadata,
+  response: ServerResponse,
+  shouldValidate: ValidationSetting,
+): ServerResponse {
+  const responseSchema = route.responses?.[String(response.status)];
+  if (!responseSchema) return response;
+
+  let value = response.jsonValue;
+  if (value === undefined) {
+    try {
+      value = JSON.parse(response.body);
+    } catch {
+      throw new Error(
+        `A resposta de erro da rota ${String(route.propertyKey)} ` +
+          `para o status ${response.status} não contém JSON válido.`,
+      );
+    }
+  }
+
+  const compiled = getCompiledSchema(responseSchema);
+  if (validationEnabled(shouldValidate)) {
+    assertResponseMatchesSchema(route, value, compiled);
+  }
+
+  return {
+    ...response,
+    body: compiled.serialize(value),
+    jsonValue: undefined,
+  };
 }
 
 /**
@@ -179,7 +224,8 @@ export function compileResponseFactory(
     return (value) => textResponse(status, value, route.contentType);
   }
 
-  if (!route.responseSchema) {
+  const responseSchema = responseSchemaForStatus(route, status);
+  if (!responseSchema) {
     return (value) => {
       if (value === undefined) {
         return {
@@ -202,7 +248,7 @@ export function compileResponseFactory(
     };
   }
 
-  const compiled = getCompiledSchema(route.responseSchema);
+  const compiled = getCompiledSchema(responseSchema);
 
   return (value) => {
     if (validationEnabled(shouldValidate)) {

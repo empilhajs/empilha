@@ -1,4 +1,5 @@
 import { compileNamedSQL } from "./sql-bindings";
+import type { GeneratedQuery } from "./generated-query";
 
 /**
  * Armazena as queries registradas.
@@ -28,6 +29,19 @@ export class QueryRegistry {
     }
 
     this.queries.set(normalizedName, normalizedSql);
+  }
+
+  registerGeneratedQuery(query: GeneratedQuery): void {
+    if (!query.sql)
+      throw new Error(
+        `Query gerada "${query.id}" não contém SQL para registro em runtime (${query.source}).`,
+      );
+    const existing = this.queries.get(query.id);
+    if (existing !== undefined) {
+      if (existing === query.sql) return;
+      throw new Error(`Query "${query.id}" já foi registrada com outro SQL.`);
+    }
+    this.register(query.id, query.sql);
   }
 
   get(name: string): string {

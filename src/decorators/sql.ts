@@ -1,5 +1,6 @@
-import type { SqlOptions } from "../types";
-import { getOrCreateRoute } from "../metadata";
+import type { SqlOptions } from "../core/types";
+import { getOrCreateRoute } from "../core/metadata";
+import type { GeneratedQuery } from "../sql/generated-query";
 
 /**
  * Associa uma query registrada e seus bindings à rota.
@@ -26,10 +27,11 @@ import { getOrCreateRoute } from "../metadata";
  * findById() {}
  */
 export function Sql(
-  name: string,
+  name: string | GeneratedQuery,
   paramsOrOptions?: string[] | SqlOptions,
 ): MethodDecorator {
-  const normalizedName = name.trim();
+  const artifact = typeof name === "string" ? undefined : name;
+  const normalizedName = typeof name === "string" ? name.trim() : name.id;
 
   if (!normalizedName) {
     throw new Error("O nome da query SQL não pode ser vazio.");
@@ -45,6 +47,7 @@ export function Sql(
     }
 
     route.queryName = normalizedName;
+    route.queryArtifact = artifact;
 
     if (Array.isArray(paramsOrOptions)) {
       route.sqlParams = [...paramsOrOptions];

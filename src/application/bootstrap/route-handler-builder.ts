@@ -3,13 +3,15 @@ import type {
   HandlerOptions,
   MiddlewareFn,
   ServerRequest,
-} from "../http";
+  ServerResponse,
+} from "../../http";
 import {
   compileArgGetters,
   compileResponseFactory,
+  normalizeResponseForRoute,
   compileRoute,
-} from "../compiler";
-import type { ControllerResolver, ErrorHandler } from "../compiler/types";
+} from "../../compiler";
+import type { ControllerResolver, ErrorHandler } from "../../compiler/types";
 import {
   compileNamedSQL,
   compileSqlBinding,
@@ -17,11 +19,18 @@ import {
   type QueryRegistry,
   type QueryClient,
   type QueryResult,
-} from "../sql";
-import { requestContext } from "../context";
-import type { RegisteredRouteMetadata } from "../types";
-import { BackgroundScheduler, AuthorizationService } from "../runtime";
+  type CompiledNamedSQL,
+} from "../../sql";
+import { requestContext } from "../../context";
+import type { RegisteredRouteMetadata } from "../../core/types";
+import type { Clock, DependencyToken } from "../../di";
+import { BackgroundScheduler, AuthorizationService } from "../../runtime";
+import type { ApplicationEvents } from "../../runtime";
 import {
+  assertGeneratedQueryBindings,
+  assertGeneratedQueryBindingTypes,
+  assertReadOnlyTransactionQuery,
+  assertRoutePathParameters,
   assertRouteSqlBindings,
   collectSqlSources,
 } from "./sql-binding-validation";
@@ -49,7 +58,9 @@ export class RouteHandlerBuilder {
     private readonly queries: QueryRegistry,
     private readonly background: BackgroundScheduler,
     private readonly authorization: AuthorizationService,
-    private readonly getPluginService: (name: string) => unknown,
+    private readonly events: ApplicationEvents,
+    private readonly clock: Clock,
+    private readonly resolveDependency: (token: DependencyToken) => unknown,
     private readonly validateResponses: () => boolean,
   ) {}
 
@@ -58,14 +69,18 @@ export class RouteHandlerBuilder {
     route: RegisteredRouteMetadata,
     fullPath: string,
   ): RouteCompilation {
-    const getArgs = compileArgGetters(route, this.getPluginService);
+    const getArgs = compileArgGetters(route, this.resolveDependency);
+    assertRoutePathParameters(route, fullPath);
     const createResponse = compileResponseFactory(
       route,
       this.validateResponses,
     );
+    const normalizeResponse = (response: ServerResponse) =>
+      normalizeResponseForRoute(route, response, this.validateResponses);
     const registeredSql = route.queryName
       ? this.queries.get(route.queryName)
       : "";
+    assertReadOnlyTransactionQuery(route, registeredSql);
     const scopedMiddlewares = [
       ...context.middlewares,
       ...(route.middlewares ?? []),
@@ -92,6 +107,7 @@ export class RouteHandlerBuilder {
             )
         : null,
       handleError: context.handleError,
+      normalizeResponse,
       middlewares: scopedMiddlewares,
       executeBackground: (request, invoke) => {
         const scope = requestContext();
@@ -137,9 +153,25 @@ export class RouteHandlerBuilder {
     path: string,
   ) {
     if (!route.queryName) return null;
-    const compiledSql = compileNamedSQL(rawSql);
-    const bindings = route.sqlParams ?? compiledSql.bindings;
-    assertRouteSqlBindings(route, bindings, path);
+    const queryName = route.queryName;
+    let compiledSql: CompiledNamedSQL;
+    try {
+      compiledSql = compileNamedSQL(rawSql);
+      assertGeneratedQueryBindings(route, compiledSql.bindings);
+      const typedSql = compileNamedSQL(rawSql, { includeTypes: true });
+      assertGeneratedQueryBindingTypes(route, typedSql.bindingTypes);
+      if (route.sqlParams)
+        assertGeneratedQueryBindings(route, route.sqlParams, "rota");
+      const bindings = route.sqlParams ?? compiledSql.bindings;
+      assertRouteSqlBindings(route, bindings, path);
+    } catch (error) {
+      const origin = route.queryArtifact?.source ?? route.queryName;
+      throw new Error(
+        `Contrato inválido da query "${route.queryName}" na rota ` +
+          `${route.method} ${path} (origem SQL: ${origin}): ${String(error)}`,
+        { cause: error },
+      );
+    }
     const namedGetters = compiledSql.bindings.map(compileSqlBinding);
     const explicitGetters = route.sqlParams?.map(compileSqlBinding);
 
@@ -147,26 +179,57 @@ export class RouteHandlerBuilder {
       request: ServerRequest,
       client?: QueryClient,
     ): Promise<QueryResult> => {
+      const startedAt = this.clock.now();
       const params = explicitGetters
         ? explicitGetters.map((get) => get(request))
         : compiledSql.named
           ? namedGetters.map((get) => get(request))
           : getArgs(request);
 
-      return client
-        ? this.postgres.executeOnClient(
-            client,
-            compiledSql.sql,
-            params,
-            requestContext().signal,
-            route.queryName,
-          )
-        : this.postgres.execute(
-            compiledSql.sql,
-            params,
-            requestContext().signal,
-            route.queryName,
-          );
+      try {
+        const result = client
+          ? await this.postgres.executeOnClient(
+              client,
+              compiledSql.sql,
+              params,
+              requestContext().signal,
+              route.queryName,
+            )
+          : await this.postgres.execute(
+              compiledSql.sql,
+              params,
+              requestContext().signal,
+              route.queryName,
+            );
+        this.events.emit(
+          "query.completed",
+          Object.freeze({
+            requestId: requestContext().requestId,
+            query: queryName,
+            route: path,
+            durationMs: Math.max(0, this.clock.now() - startedAt),
+            rowCount: result.rows.length,
+            transaction: client !== undefined,
+          }),
+        );
+        return result;
+      } catch (error) {
+        this.events.emit(
+          "query.completed",
+          Object.freeze({
+            requestId: requestContext().requestId,
+            query: queryName,
+            route: path,
+            durationMs: Math.max(0, this.clock.now() - startedAt),
+            rowCount: 0,
+            transaction: client !== undefined,
+            error: Object.freeze({
+              name: error instanceof Error ? error.name : "Error",
+            }),
+          }),
+        );
+        throw error;
+      }
     };
   }
 }

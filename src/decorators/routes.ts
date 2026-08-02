@@ -1,12 +1,12 @@
-import type { HttpMethod } from "../types";
-import type { ControllerOptions } from "../types";
+import type { HttpMethod } from "../core/types";
+import type { ControllerOptions } from "../core/types";
 import type { MiddlewareFn } from "../http/http-adapter";
 import {
   getOrCreateRoute,
   registerControllerOptions,
   registerControllerMiddlewares,
   registerControllerPath,
-} from "../metadata";
+} from "../core/metadata";
 import { normalizePath } from "../router/path";
 
 /**

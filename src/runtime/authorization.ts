@@ -1,6 +1,6 @@
 import type { ServerRequest, ServerResponse } from "../http/http-adapter";
-import type { RouteMetadata } from "../types";
-import { requestContext } from "../context/index";
+import type { RouteMetadata } from "../core/types";
+import { requestContext } from "../context";
 import { createErrorResponse } from "./error-pipeline";
 
 /** Resultado da validação de um bearer token. */
@@ -8,6 +8,8 @@ export type AuthResult<TPayload = unknown> = {
   valid: boolean;
   roles?: string[];
   payload?: TPayload;
+  /** Motivo interno da rejeição, sem detalhes criptográficos. */
+  failure?: "invalid-token" | "invalid-claims";
 };
 
 /** Função da aplicação usada para validar tokens e obter suas roles. */
@@ -109,7 +111,12 @@ export class AuthorizationService {
       const result = await this.tokenHandler(token);
 
       if (!result.valid) {
-        return createErrorResponse(401, "Token inválido");
+        return createErrorResponse(
+          401,
+          result.failure === "invalid-claims"
+            ? "Claims inválidas"
+            : "Token inválido",
+        );
       }
 
       if (result.payload !== undefined) {

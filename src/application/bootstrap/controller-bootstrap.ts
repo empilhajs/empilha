@@ -1,6 +1,9 @@
-import { Container, type Constructor } from "../di";
-import { requestContext } from "../context";
-import type { ControllerInstance, ControllerResolver } from "../compiler/types";
+import { Container, type Constructor } from "../../di";
+import { requestContext } from "../../context";
+import type {
+  ControllerInstance,
+  ControllerResolver,
+} from "../../compiler/types";
 
 export class ControllerBootstrap {
   constructor(private readonly container: Container) {}

@@ -1,4 +1,4 @@
-import type { RequestContext } from "../types";
+import type { RequestContext } from "../core/types";
 import type { ServerResponse } from "./http-response-writer";
 
 export type ServerRequest = RequestContext;
@@ -17,6 +17,14 @@ export type HandlerOptions = {
   responseType?: "text" | "json";
   queryStart?: number;
 };
+
+/** Decisão calculada durante o registro de uma rota para o fast path do Bun. */
+export type NativeRouteEligibility = Readonly<{
+  method: string;
+  path: string;
+  eligible: boolean;
+  reasons: readonly string[];
+}>;
 
 export type ServerHandler = (
   req: ServerRequest,
@@ -47,6 +55,8 @@ export type HttpOptions = {
   requestId?: boolean;
   serverHeader?: string;
   maxBodyBytes?: number;
+  maxQueryBytes?: number;
+  maxQueryParameters?: number;
   maxHeaderCount?: number | null;
   bodyTimeout?: number | null;
   handlerTimeout?: number | null;

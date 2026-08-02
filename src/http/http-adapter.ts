@@ -6,8 +6,8 @@ import {
   runWithRequestContext,
   tryRequestContext,
   type RequestScope,
-} from "../context/index";
-import { Container } from "../di/index";
+} from "../context";
+import { Container, type Clock, type RequestIdGenerator } from "../di";
 import { JsonBodyReader, RequestBodyError } from "./request-body-reader";
 import {
   HttpResponseWriter,
@@ -23,6 +23,7 @@ import {
   type ServerHandlerResult,
   type ServerRequest,
   type HttpOptions,
+  type NativeRouteEligibility,
 } from "./adapter-types";
 import { isPromise, validateLimit, validateTimeout } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
@@ -31,14 +32,17 @@ import {
   countHeaders,
   parseRequestPath,
   parseRequestQuery,
+  DEFAULT_MAX_QUERY_BYTES,
+  DEFAULT_MAX_QUERY_PARAMETERS,
   type ParsedRequestPath,
 } from "./request-parsing";
 import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
 import { ApplicationLogger, type Logger } from "../utils/logger";
 import { HttpServer, type NativeRouteValue } from "./http-server";
-import { addRequestId } from "./request-id";
+import { addRequestId, createRequestId } from "./request-id";
 import { serializeJson } from "../utils/serialize-json";
+import { observableError, type ApplicationEvents } from "../runtime";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -51,6 +55,13 @@ export type {
 export type { HttpOptions } from "./adapter-types";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function validatePositiveInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`O limite de ${label} deve ser um inteiro positivo.`);
+  }
+  return value;
+}
 
 type MatchedRoute = {
   handler: ServerHandler;
@@ -84,6 +95,8 @@ export class HttpAdapter {
 
   private readonly nativeRoutes: Record<string, unknown> = Object.create(null);
 
+  private readonly nativeEligibility: NativeRouteEligibility[] = [];
+
   private readonly middlewares: MiddlewareFn[] = [];
 
   private readonly responses = new HttpResponseWriter();
@@ -96,7 +109,15 @@ export class HttpAdapter {
 
   private requestIdEnabled = true;
 
+  private requestIdGenerator: RequestIdGenerator = createRequestId;
+
+  private clock: Clock = { now: () => performance.now() };
+
   private maxHeaderCount: number | null = 100;
+
+  private maxQueryBytes = DEFAULT_MAX_QUERY_BYTES;
+
+  private maxQueryParameters = DEFAULT_MAX_QUERY_PARAMETERS;
 
   private requestScopeFactory: (() => Container) | undefined;
 
@@ -107,6 +128,7 @@ export class HttpAdapter {
     this.requests,
     () =>
       this.middlewares.length === 0 &&
+      !this.responses.corsEnabled &&
       this.handlerTimeoutMs === null &&
       this.requestConcurrency === null &&
       !this.bodyReader.hasTimeout &&
@@ -121,6 +143,8 @@ export class HttpAdapter {
   });
 
   private logger: Logger = new ApplicationLogger();
+
+  private events: ApplicationEvents | undefined;
 
   /** Aplica todas as opções HTTP em uma única operação de configuração. */
   configure(options: HttpOptions): void {
@@ -141,6 +165,10 @@ export class HttpAdapter {
       this.setServerHeader(options.serverHeader);
     if (options.maxBodyBytes !== undefined)
       this.setMaxBodyBytes(options.maxBodyBytes);
+    if (options.maxQueryBytes !== undefined)
+      this.setMaxQueryBytes(options.maxQueryBytes);
+    if (options.maxQueryParameters !== undefined)
+      this.setMaxQueryParameters(options.maxQueryParameters);
     if (options.maxHeaderCount !== undefined)
       this.setMaxHeaderCount(options.maxHeaderCount);
     if (options.bodyTimeout !== undefined)
@@ -157,9 +185,48 @@ export class HttpAdapter {
     this.logger = logger;
   }
 
+  /** Retorna a decisão de promoção calculada para cada rota registrada. */
+  getNativeRouteEligibility(): readonly NativeRouteEligibility[] {
+    const globalReasons: string[] = [];
+    if (this.middlewares.length > 0) globalReasons.push("middleware-global");
+    if (this.responses.corsEnabled) globalReasons.push("cors");
+    if (this.handlerTimeoutMs !== null) globalReasons.push("handler-timeout");
+    if (this.requestConcurrency !== null)
+      globalReasons.push("request-concurrency");
+    if (this.bodyReader.hasTimeout) globalReasons.push("body-timeout");
+    if (this.bodyReader.hasCustomMaxBytes)
+      globalReasons.push("body-size-limit");
+
+    return Object.freeze(
+      this.nativeEligibility.map((entry) =>
+        Object.freeze({
+          ...entry,
+          eligible: entry.eligible && globalReasons.length === 0,
+          reasons: Object.freeze([
+            ...entry.reasons,
+            ...(entry.eligible ? globalReasons : []),
+          ]),
+        }),
+      ),
+    );
+  }
+
+  setEvents(events: ApplicationEvents): void {
+    this.events = events;
+  }
+
   /** Define a factory usada para criar containers de request scope. */
   setRequestScopeFactory(factory: () => Container): void {
     this.requestScopeFactory = factory;
+  }
+
+  setRequestIdGenerator(generator: RequestIdGenerator): void {
+    this.requestIdGenerator = generator;
+    this.server.setRequestIdGenerator(generator);
+  }
+
+  setClock(clock: Clock): void {
+    this.clock = clock;
   }
 
   /** Define o header `Server` aplicado pelo response writer. */
@@ -177,6 +244,19 @@ export class HttpAdapter {
   setMaxHeaderCount(limit: number | null): void {
     this.maxHeaderCount = validateLimit(limit, "headers");
     this.server.setMaxHeaderCount(this.maxHeaderCount);
+  }
+
+  /** Limita o tamanho codificado da query string antes do parsing. */
+  setMaxQueryBytes(limit: number): void {
+    this.maxQueryBytes = validatePositiveInteger(limit, "query em bytes");
+  }
+
+  /** Limita a quantidade de parâmetros aceitos antes do handler. */
+  setMaxQueryParameters(limit: number): void {
+    this.maxQueryParameters = validatePositiveInteger(
+      limit,
+      "parâmetros de query",
+    );
   }
 
   /** Adiciona um middleware global ao pipeline completo. */
@@ -388,7 +468,10 @@ export class HttpAdapter {
     signal: AbortSignal,
   ): ServerRequest {
     const rawQuery = options.needsQuery
-      ? parseRequestQuery(request.url, queryStart)
+      ? parseRequestQuery(request.url, queryStart, {
+          maxBytes: this.maxQueryBytes,
+          maxParameters: this.maxQueryParameters,
+        })
       : EMPTY_STRING_RECORD;
     const minimalRequest = options.minimalRequest === true;
     return {
@@ -454,6 +537,63 @@ export class HttpAdapter {
    * @returns Response imediata ou Promise de Response.
    */
   handleRequest(request: Request): Response | Promise<Response> {
+    const startedAt = this.clock.now();
+    const complete = (response: Response): Response => {
+      const requestId =
+        response.headers.get("X-Request-Id") ??
+        request.headers.get("X-Request-Id") ??
+        "unknown";
+      this.events?.emit(
+        "request.completed",
+        Object.freeze({
+          requestId,
+          method: request.method,
+          pathname: (() => {
+            try {
+              return parseRequestPath(request.url).pathname;
+            } catch {
+              return new URL(request.url).pathname;
+            }
+          })(),
+          route: (() => {
+            try {
+              return parseRequestPath(request.url).pathname;
+            } catch {
+              return new URL(request.url).pathname;
+            }
+          })(),
+          status: response.status,
+          durationMs: Math.max(0, this.clock.now() - startedAt),
+        }),
+      );
+      return response;
+    };
+    const failed = (error: unknown): never => {
+      this.events?.emit(
+        "request.completed",
+        Object.freeze({
+          requestId: request.headers.get("X-Request-Id") ?? "unknown",
+          method: request.method,
+          pathname: new URL(request.url).pathname,
+          route: new URL(request.url).pathname,
+          status: 500,
+          durationMs: Math.max(0, this.clock.now() - startedAt),
+          error: observableError(error),
+        }),
+      );
+      throw error;
+    };
+    try {
+      const result = this.dispatchRequest(request);
+      return isPromise(result)
+        ? result.then(complete, failed)
+        : complete(result);
+    } catch (error) {
+      return failed(error);
+    }
+  }
+
+  private dispatchRequest(request: Request): Response | Promise<Response> {
     if (
       this.maxHeaderCount !== null &&
       countHeaders(request.headers) > this.maxHeaderCount
@@ -597,6 +737,7 @@ export class HttpAdapter {
       scope = createRequestScope(
         request,
         this.requestScopeFactory?.() ?? new Container(),
+        this.requestIdGenerator,
       );
     } catch (error) {
       this.requests.leave();
@@ -627,7 +768,9 @@ export class HttpAdapter {
   }
 
   private withRequestId(response: Response, requestId?: string): Response {
-    return this.requestIdEnabled ? addRequestId(response, requestId) : response;
+    return this.requestIdEnabled
+      ? addRequestId(response, requestId ?? this.requestIdGenerator())
+      : response;
   }
 
   private handleRequestInContext(
@@ -692,6 +835,25 @@ export class HttpAdapter {
     this.router.insert(normalizedMethod, normalizedPath, handler);
 
     const configured = handler as ConfiguredHandler;
+    const nativeReasons: string[] = [];
+    if (configured.length !== 0) nativeReasons.push("handler-arguments");
+    if (configured.needsRequest) nativeReasons.push("request");
+    if (configured.needsQuery) nativeReasons.push("query");
+    if (configured.needsHeaders) nativeReasons.push("headers");
+    if (configured.needsBody) nativeReasons.push("body");
+    if (configured.requiresRequestContext)
+      nativeReasons.push("request-context");
+
+    const nativeEligible = nativeReasons.length === 0;
+    this.nativeEligibility.push(
+      Object.freeze({
+        method: normalizedMethod,
+        path: normalizedPath,
+        eligible: nativeEligible,
+        reasons: Object.freeze(nativeReasons),
+      }),
+    );
+
     if (
       configured.length === 0 &&
       !configured.needsRequest &&
@@ -701,6 +863,21 @@ export class HttpAdapter {
       !configured.requiresRequestContext
     ) {
       this.addNativeRoute(normalizedMethod, normalizedPath, (_request) => {
+        const startedAt = this.clock.now();
+        const complete = (response: Response): Response => {
+          this.events?.emit(
+            "request.completed",
+            Object.freeze({
+              requestId: _request.headers.get("X-Request-Id") ?? "unknown",
+              method: _request.method,
+              pathname: normalizedPath,
+              route: normalizedPath,
+              status: response.status,
+              durationMs: Math.max(0, this.clock.now() - startedAt),
+            }),
+          );
+          return response;
+        };
         try {
           const result = handler(undefined as never);
           if (isPromise(result)) {
@@ -711,11 +888,14 @@ export class HttpAdapter {
                   configured.responseType,
                 ),
               )
-              .catch((error) => this.handleDispatchError(error));
+              .then(complete)
+              .catch((error) => this.handleDispatchError(error).then(complete));
           }
-          return this.normalizeHandlerResponse(result, configured.responseType);
+          return complete(
+            this.normalizeHandlerResponse(result, configured.responseType),
+          );
         } catch (error) {
-          return this.handleDispatchError(error);
+          return this.handleDispatchError(error).then(complete);
         }
       });
     }
@@ -816,7 +996,10 @@ export class HttpAdapter {
               params?: Record<string, string>;
             }
           ).params ?? EMPTY_STRING_RECORD;
-        const query = parseRequestQuery(request.url, parsed.queryStart);
+        const query = parseRequestQuery(request.url, parsed.queryStart, {
+          maxBytes: this.maxQueryBytes,
+          maxParameters: this.maxQueryParameters,
+        });
         return this.responses.text(
           handler(params, query as Record<string, string>),
           headers,
@@ -902,7 +1085,7 @@ export class HttpAdapter {
    *
    * Se o shutdown timeout vencer, os scopes ativos são abortados e a Promise
    * rejeita. O adapter não libera providers do container raiz; essa decisão
-   * pertence ao `Empilha.close()` após a drenagem completa.
+   * pertence ao `app.close()` após a drenagem completa.
    *
    * @throws {Error} Quando o prazo configurado é excedido.
    */

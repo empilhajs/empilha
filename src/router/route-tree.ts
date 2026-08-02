@@ -45,9 +45,61 @@ type PatternSegment =
 
 type PatternRoute<THandler extends Handler> = {
   method: string;
+  path: string;
   segments: PatternSegment[];
   handler: THandler;
 };
+
+function patternLengthRange(
+  segments: PatternSegment[],
+): readonly [minimum: number, maximum: number] {
+  let minimum = 0;
+  for (const segment of segments) {
+    if (segment.kind === "wildcard") return [minimum, Number.POSITIVE_INFINITY];
+    if (segment.kind !== "param" || !segment.optional) minimum++;
+  }
+  return [minimum, segments.length];
+}
+
+function patternsMayOverlap(
+  first: PatternSegment[],
+  second: PatternSegment[],
+): boolean {
+  const [firstMinimum, firstMaximum] = patternLengthRange(first);
+  const [secondMinimum, secondMaximum] = patternLengthRange(second);
+  if (firstMaximum < secondMinimum || secondMaximum < firstMinimum)
+    return false;
+
+  const sharedLength = Math.min(first.length, second.length);
+  for (let index = 0; index < sharedLength; index++) {
+    const left = first[index];
+    const right = second[index];
+    if (left.kind === "wildcard" || right.kind === "wildcard") return true;
+
+    // A partir de um opcional pode haver deslocamento de segmentos. Sem um
+    // autômato completo, rejeitar conservadoramente evita falso negativo.
+    if (
+      (left.kind === "param" && left.optional) ||
+      (right.kind === "param" && right.optional)
+    ) {
+      return true;
+    }
+
+    if (left.kind === "static" && right.kind === "static") {
+      if (left.value !== right.value) return false;
+      continue;
+    }
+    if (left.kind === "static" && right.kind === "param") {
+      if (right.expression && !right.expression.test(left.value)) return false;
+      continue;
+    }
+    if (left.kind === "param" && right.kind === "static") {
+      if (left.expression && !left.expression.test(right.value)) return false;
+    }
+  }
+
+  return true;
+}
 
 function samePattern(
   first: PatternSegment[],
@@ -145,6 +197,13 @@ export class RouteTree<THandler extends Handler = Handler> {
   private root = createNode<THandler>();
 
   private patternRoutes: PatternRoute<THandler>[] = [];
+
+  private registeredRoutes: Array<{
+    method: string;
+    path: string;
+    segments: PatternSegment[];
+    hasPattern: boolean;
+  }> = [];
 
   /**
    * Índice medido para rotas totalmente estáticas.
@@ -248,6 +307,18 @@ export class RouteTree<THandler extends Handler = Handler> {
         (segment.kind === "param" &&
           (segment.optional || segment.expression !== undefined)),
     );
+    const ambiguous = this.registeredRoutes.find(
+      (route) =>
+        route.method === normalizedMethod &&
+        (hasPattern || route.hasPattern) &&
+        !samePattern(route.segments, patternSegments) &&
+        patternsMayOverlap(route.segments, patternSegments),
+    );
+    if (ambiguous) {
+      throw new Error(
+        `Rotas ambíguas: ${normalizedMethod} ${ambiguous.path} e ${normalizedPath}`,
+      );
+    }
     if (hasPattern) {
       if (
         this.patternRoutes.some(
@@ -262,8 +333,15 @@ export class RouteTree<THandler extends Handler = Handler> {
       }
       this.patternRoutes.push({
         method: normalizedMethod,
+        path: normalizedPath,
         segments: patternSegments,
         handler,
+      });
+      this.registeredRoutes.push({
+        method: normalizedMethod,
+        path: normalizedPath,
+        segments: patternSegments,
+        hasPattern,
       });
       this.transactionRoutes?.push({
         method: normalizedMethod,
@@ -318,6 +396,12 @@ export class RouteTree<THandler extends Handler = Handler> {
     }
 
     current.handlers.set(normalizedMethod, handler);
+    this.registeredRoutes.push({
+      method: normalizedMethod,
+      path: normalizedPath,
+      segments: patternSegments,
+      hasPattern,
+    });
 
     if (!segments.some((segment) => paramRegex.test(segment))) {
       this.staticHandlers[`${normalizedMethod} ${normalizedPath}`] =
@@ -358,6 +442,11 @@ export class RouteTree<THandler extends Handler = Handler> {
         (segment.kind === "param" &&
           (segment.optional || segment.expression !== undefined)),
     );
+    const registeredIndex = this.registeredRoutes.findIndex(
+      (route) =>
+        route.method === normalizedMethod && route.path === normalizedPath,
+    );
+    if (registeredIndex >= 0) this.registeredRoutes.splice(registeredIndex, 1);
 
     if (hasPattern) {
       const index = this.patternRoutes.findIndex(
@@ -530,12 +619,16 @@ export class RouteTree<THandler extends Handler = Handler> {
       }
     }
 
-    for (const route of this.patternRoutes) {
-      if (
-        route.method !== normalizedMethod &&
-        !(normalizedMethod === "HEAD" && route.method === "GET")
-      )
-        continue;
+    const candidatePatternRoutes =
+      normalizedMethod === "HEAD"
+        ? [
+            ...this.patternRoutes.filter((route) => route.method === "HEAD"),
+            ...this.patternRoutes.filter((route) => route.method === "GET"),
+          ]
+        : this.patternRoutes.filter(
+            (route) => route.method === normalizedMethod,
+          );
+    for (const route of candidatePatternRoutes) {
       const patternParams = createStringRecord();
       let pathIndex = 0;
       let matched = true;

@@ -1,6 +1,15 @@
 import { normalizePath } from "../router/path";
 import { createStringRecord, EMPTY_STRING_RECORD } from "../utils/records";
 
+export const DEFAULT_MAX_QUERY_BYTES = 8_192;
+export const DEFAULT_MAX_QUERY_PARAMETERS = 256;
+const QUERY_ENCODER = new TextEncoder();
+
+export type QueryParsingLimits = Readonly<{
+  maxBytes?: number;
+  maxParameters?: number;
+}>;
+
 /** Resultado do parsing normalizado de um caminho de requisição. */
 export type ParsedRequestPath = {
   pathname: string;
@@ -70,7 +79,7 @@ function decodeQueryComponent(value: string): string {
 }
 
 function appendQueryValue(
-  query: Record<string, string | readonly string[]>,
+  query: Record<string, string | string[]>,
   key: string,
   value: string,
 ): void {
@@ -82,7 +91,7 @@ function appendQueryValue(
   }
 
   if (Array.isArray(previous)) {
-    query[key] = [...previous, value];
+    previous.push(value);
     return;
   }
 
@@ -104,6 +113,7 @@ function appendQueryValue(
 export function parseRequestQuery(
   raw: string,
   knownQueryStart?: number,
+  limits: QueryParsingLimits = {},
 ): Record<string, string | readonly string[]> {
   const queryStart = knownQueryStart ?? findUrlParts(raw)[1];
 
@@ -111,15 +121,19 @@ export function parseRequestQuery(
     return EMPTY_STRING_RECORD;
   }
 
-  const query = Object.create(null) as Record<
-    string,
-    string | readonly string[]
-  >;
+  const query = Object.create(null) as Record<string, string | string[]>;
   const fragmentStart = raw.indexOf("#", queryStart + 1);
   const queryEnd = fragmentStart === -1 ? raw.length : fragmentStart;
   const queryString = raw.slice(queryStart + 1, queryEnd);
+  const maxBytes = limits.maxBytes ?? DEFAULT_MAX_QUERY_BYTES;
+  const maxParameters = limits.maxParameters ?? DEFAULT_MAX_QUERY_PARAMETERS;
+
+  if (QUERY_ENCODER.encode(queryString).byteLength > maxBytes) {
+    throw new RangeError(`Query string excede o limite de ${maxBytes} bytes.`);
+  }
 
   let start = 0;
+  let parameterCount = 0;
 
   while (start < queryString.length) {
     const separator = queryString.indexOf("&", start);
@@ -128,6 +142,13 @@ export function parseRequestQuery(
     start = end + 1;
 
     if (!part) continue;
+
+    parameterCount++;
+    if (parameterCount > maxParameters) {
+      throw new RangeError(
+        `Query string excede o limite de ${maxParameters} parâmetros.`,
+      );
+    }
 
     const equalsIndex = part.indexOf("=");
     const rawKey = equalsIndex === -1 ? part : part.slice(0, equalsIndex);

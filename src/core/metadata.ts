@@ -3,7 +3,7 @@ import type {
   RegisteredRouteMetadata,
   RouteMetadata,
 } from "./types";
-import type { MiddlewareFn } from "./http/http-adapter";
+import type { MiddlewareFn } from "../http/http-adapter";
 
 type MethodKey = string | symbol;
 type ErrorConstructor = new (...args: any[]) => Error;
@@ -144,6 +144,14 @@ export function getCatchHandler(
   return findCatchHandler(metadataOf(controller)?.catchers, error);
 }
 
+/** Retorna os catchers declarados, para inspeção estática do grafo. */
+export function getControllerCatchHandlers(
+  controller: Function,
+): readonly [ErrorConstructor, MethodKey][] {
+  const handlers = metadataOf(controller.prototype)?.catchers;
+  return handlers ? [...handlers.entries()] : [];
+}
+
 function findCatchHandler(
   handlers: Map<ErrorConstructor, MethodKey> | undefined,
   error: unknown,
@@ -194,6 +202,8 @@ export function createMetadataRegistry(): MetadataRegistry {
                 ? new Map(route.validators)
                 : undefined,
               sqlParams: route.sqlParams ? [...route.sqlParams] : undefined,
+              queryArtifact: route.queryArtifact,
+              responses: route.responses,
               middlewares: route.middlewares
                 ? [...route.middlewares]
                 : undefined,

@@ -1,5 +1,5 @@
-import type { HandlerOptions, ServerHandler } from "../http";
-import type { RegisteredRouteMetadata } from "../types";
+import type { HandlerOptions, ServerHandler } from "../../http";
+import type { RegisteredRouteMetadata } from "../../core/types";
 import {
   usesSqlBindingSource,
   type RequestDataSource,
@@ -27,6 +27,7 @@ export function configureRouteRequest(
     route.beforeSql !== undefined ||
     route.afterCommit !== undefined ||
     Boolean(route.querySchema) ||
+    Boolean(route.headerSchema) ||
     Boolean(route.bodySchema) ||
     Boolean(route.bodyValidator) ||
     sqlSources.size > 0;
@@ -41,6 +42,7 @@ export function configureRouteRequest(
     hasFullRequest ||
     Boolean(route.auth) ||
     Boolean(route.requiresAuth) ||
+    Boolean(route.headerSchema) ||
     route.parameters.some((parameter) => parameter.source === "header") ||
     sqlSources.has("header") ||
     usesSqlBindingSource(route, "header") ||

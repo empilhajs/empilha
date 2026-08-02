@@ -1,5 +1,7 @@
 import type { Static, TSchema } from "@sinclair/typebox";
-import type { MiddlewareFn } from "./http/http-adapter";
+import type { MiddlewareFn } from "../http/http-adapter";
+import type { GeneratedQuery } from "../sql/generated-query";
+import type { DependencyToken } from "../di";
 
 export type HttpMethod =
   | "GET"
@@ -12,7 +14,7 @@ export type HttpMethod =
 
 export type ParameterSource =
   | "body"
-  | "plugin"
+  | "inject"
   | "param"
   | "query"
   | "header"
@@ -27,10 +29,17 @@ export type SqlBinding = string;
 
 export type ParameterValidator = (value: unknown) => void;
 
+/** Descritor estrutural aceito por @Identity sem acoplar o core a JWT. */
+export type IdentityAccess = {
+  readonly name?: string;
+  readonly claims?: TSchema;
+};
+
 export type ParameterMetadata = {
   index: number;
   source: ParameterSource;
   name?: string;
+  token?: DependencyToken;
   type?: Function;
   schema?: TSchema;
 };
@@ -40,6 +49,7 @@ export type RouteMetadata = {
   method?: HttpMethod;
   path?: string;
   queryName?: string;
+  queryArtifact?: GeneratedQuery;
   parameters: ParameterMetadata[];
   validators?: Map<number, ParameterValidator>;
   bodySchema?: TSchema;
@@ -59,7 +69,12 @@ export type RouteMetadata = {
   querySchema?: TSchema;
   queryValidator?: ParameterValidator;
   queryDefaults?: Record<string, unknown>;
+  headerSchema?: TSchema;
+  headerValidator?: ParameterValidator;
+  identity?: string;
+  identitySchema?: TSchema;
   responseSchema?: TSchema;
+  responses?: Readonly<Record<string, TSchema>>;
   contentType?: string;
   middlewares?: MiddlewareFn[];
   requiresAuth?: boolean;

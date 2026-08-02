@@ -1,4 +1,4 @@
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 
 /**
  * Exige uma ou mais roles para autorizar a rota.

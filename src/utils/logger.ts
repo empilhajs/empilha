@@ -31,7 +31,7 @@ export class ApplicationLogger implements Logger {
   }
 }
 
-/** Compatibilidade para utilitários ainda sem logger de aplicação. */
+/** Fallback usado por utilitários que ainda não recebem um logger de aplicação. */
 export function logFrameworkError(message: string, error: unknown): void {
   consoleLogger.error(error, message);
 }

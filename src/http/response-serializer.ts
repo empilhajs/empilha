@@ -17,6 +17,7 @@ type SchemaNode = TSchema & {
   properties?: Record<string, TSchema>;
   anyOf?: TSchema[];
   oneOf?: TSchema[];
+  allOf?: TSchema[];
 };
 
 /**
@@ -138,6 +139,25 @@ function compileObject(
   };
 }
 
+function collectObjectProperties(
+  schema: TSchema,
+): Record<string, TSchema> | null {
+  const node = schema as SchemaNode;
+  if (node.type === "object" && node.properties) return node.properties;
+  if (!node.allOf?.length) return null;
+
+  const properties: Record<string, TSchema> = Object.create(null) as Record<
+    string,
+    TSchema
+  >;
+  for (const member of node.allOf) {
+    const memberProperties = collectObjectProperties(member);
+    if (!memberProperties) return null;
+    Object.assign(properties, memberProperties);
+  }
+  return properties;
+}
+
 function matchesSchema(value: unknown, schema: TSchema): boolean {
   const node = schema as SchemaNode;
   if (node.anyOf) {
@@ -183,11 +203,15 @@ function compileUnion(
       matchesSchema(value, schema) ? [index] : [],
     );
     if (mode === "oneOf") {
-      if (matches.length !== 1) return serializeJson(value);
+      if (matches.length !== 1) {
+        throw new TypeError(
+          "A resposta não corresponde a um único schema oneOf.",
+        );
+      }
       return (compiled[matches[0]] as Serializer)(value);
     }
     if (matches.length > 0) return (compiled[matches[0]] as Serializer)(value);
-    return serializeJson(value);
+    throw new TypeError("A resposta não corresponde a nenhum schema anyOf.");
   };
 }
 
@@ -208,6 +232,10 @@ function compile(schema: TSchema | undefined): Serializer | null {
   }
 
   const node = schema as SchemaNode;
+
+  if (node.allOf) {
+    return compileObject(collectObjectProperties(schema) ?? undefined);
+  }
 
   const union = node.anyOf
     ? compileUnion(node.anyOf, "anyOf")
@@ -236,8 +264,7 @@ function compile(schema: TSchema | undefined): Serializer | null {
 /**
  * Compila um serializer de resposta para um schema TypeBox.
  *
- * Quando o schema não possui um serializer especializado,
- * utiliza `JSON.stringify` como fallback.
+ * Schemas sem serializer seguro são rejeitados durante o registro da rota.
  *
  * @param schema - Schema da resposta.
  *
@@ -252,5 +279,11 @@ function compile(schema: TSchema | undefined): Serializer | null {
  * })
  */
 export function compileResponseSerializer(schema: TSchema): Serializer {
-  return compile(schema) ?? serializeJson;
+  const serializer = compile(schema);
+  if (!serializer) {
+    throw new TypeError(
+      "Schema de resposta não suportado pelo serializer seguro.",
+    );
+  }
+  return serializer;
 }

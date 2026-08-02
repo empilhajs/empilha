@@ -1,1 +1,1 @@
-export type { Infer } from "../types";
+export type { Infer } from "../core/types";

@@ -44,6 +44,51 @@ export type CompiledNamedSQL = {
   named: boolean;
 };
 
+export type CompiledBindingTypes = Readonly<Record<string, string>>;
+export type CompileNamedSQLOptions = {
+  includeTypes?: boolean;
+};
+
+function typeScriptTypeForPostgresCast(cast: string): string {
+  const normalized = cast.toLowerCase();
+  if (["bool", "boolean"].includes(normalized)) return "boolean";
+  if (
+    [
+      "smallint",
+      "int2",
+      "integer",
+      "int",
+      "int4",
+      "bigint",
+      "int8",
+      "numeric",
+      "decimal",
+      "real",
+      "float4",
+      "double precision",
+      "float8",
+    ].includes(normalized)
+  )
+    return "number";
+  if (
+    [
+      "text",
+      "varchar",
+      "character varying",
+      "char",
+      "character",
+      "uuid",
+      "date",
+      "time",
+      "timestamp",
+      "timestamptz",
+    ].includes(normalized)
+  )
+    return "string";
+  if (["json", "jsonb"].includes(normalized)) return "unknown";
+  return "unknown";
+}
+
 /** Valida a sintaxe de um binding antes de a rota ser registrada. */
 export function assertSqlBinding(binding: string): void {
   const normalized = binding.endsWith("?") ? binding.slice(0, -1) : binding;
@@ -63,7 +108,15 @@ export function assertSqlBinding(binding: string): void {
     );
   }
 
-  if (path.some((part) => !part || !/^[A-Za-z_$][\w$]*$/.test(part))) {
+  if (
+    path.some(
+      (part) =>
+        !part ||
+        !(source === "header"
+          ? /^[A-Za-z_$][\w$-]*$/.test(part)
+          : /^[A-Za-z_$][\w$]*$/.test(part)),
+    )
+  ) {
     throw new Error(`Binding SQL inválido "${binding}".`);
   }
 }
@@ -182,8 +235,19 @@ export function compileSqlBinding(binding: string): SqlValueGetter {
  * //   named: true,
  * // }
  */
-export function compileNamedSQL(sql: string): CompiledNamedSQL {
+export function compileNamedSQL(sql: string): CompiledNamedSQL;
+export function compileNamedSQL(
+  sql: string,
+  options: CompileNamedSQLOptions & { includeTypes: true },
+): CompiledNamedSQL & { bindingTypes: CompiledBindingTypes };
+export function compileNamedSQL(
+  sql: string,
+  options: CompileNamedSQLOptions = {},
+):
+  | CompiledNamedSQL
+  | (CompiledNamedSQL & { bindingTypes: CompiledBindingTypes }) {
   const bindings: string[] = [];
+  const bindingTypes = new Map<string, string>();
   let prepared = "";
   let index = 0;
   let state: "normal" | "single" | "double" | "dollar" | "line" | "block" =
@@ -314,12 +378,28 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
     if (current === ":" && sql[index - 1] !== ":") {
       const binding = sql
         .slice(index)
-        .match(/^:([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$]*)+)(\?)?/);
+        .match(/^:([A-Za-z_$][\w$]*)((?:\.[A-Za-z_$][\w$-]*)+)(\?)?/);
 
       if (binding) {
         const source = binding[1] as BindingSource;
         const path = binding[2];
         bindings.push(`${source}${path}${binding[3] ?? ""}`);
+        const bindingName = bindings.at(-1)!;
+        const cast = sql
+          .slice(index + binding[0].length)
+          .match(/^::\s*([A-Za-z_][\w$]*(?:\s+precision|\s+varying)?)/i);
+        const inferredType = binding[3]
+          ? "boolean"
+          : cast
+            ? typeScriptTypeForPostgresCast(cast[1] ?? "")
+            : "unknown";
+        const previousType = bindingTypes.get(bindingName);
+        bindingTypes.set(
+          bindingName,
+          previousType && previousType !== inferredType
+            ? "unknown"
+            : inferredType,
+        );
         prepared += `$${bindings.length}`;
         index += binding[0].length;
 
@@ -327,7 +407,7 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
         if (
           following === "." ||
           following === "?" ||
-          (following !== undefined && /[A-Za-z0-9_$]/.test(following))
+          (following !== undefined && /[A-Za-z0-9_$-]/.test(following))
         ) {
           throw new Error(
             `Binding SQL inválido "${sql.slice(index - binding[0].length, index + 1)}". ` +
@@ -353,9 +433,12 @@ export function compileNamedSQL(sql: string): CompiledNamedSQL {
 
   for (const binding of bindings) assertSqlBinding(binding);
 
-  return {
+  const result = {
     sql: prepared,
     bindings,
     named: bindings.length > 0,
   };
+  return options.includeTypes
+    ? { ...result, bindingTypes: Object.fromEntries(bindingTypes) }
+    : result;
 }

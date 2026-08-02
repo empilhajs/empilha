@@ -4,6 +4,8 @@ import { RequestTracker } from "./request-tracker";
 import { withTimeout } from "../utils/timeout";
 import { addRequestId } from "./request-id";
 import { countHeaders } from "./request-parsing";
+import { createRequestId } from "./request-id";
+import type { RequestIdGenerator } from "../di";
 
 type BunServer = ReturnType<typeof Bun.serve>;
 export type NativeRouteHandler = (
@@ -19,6 +21,7 @@ export class HttpServer {
   private server: BunServer | null = null;
   private shutdownTimeoutMs: number | null = 15_000;
   private requestIdEnabled = true;
+  private requestIdGenerator: RequestIdGenerator = createRequestId;
   private maxHeaderCount: number | null = 100;
 
   constructor(
@@ -41,6 +44,10 @@ export class HttpServer {
 
   setRequestIdEnabled(enabled: boolean): void {
     this.requestIdEnabled = enabled;
+  }
+
+  setRequestIdGenerator(generator: RequestIdGenerator): void {
+    this.requestIdGenerator = generator;
   }
 
   setMaxHeaderCount(limit: number | null): void {
@@ -92,18 +99,38 @@ export class HttpServer {
         return new Response("Request Header Fields Too Large", { status: 431 });
       }
       this.requests.tryEnter(null);
+      const requestId = this.requestIdEnabled
+        ? this.requestIdGenerator()
+        : undefined;
+      const trackedRequest = requestId
+        ? new Request(request, {
+            headers: new Headers([
+              ...request.headers,
+              ["X-Request-Id", requestId],
+            ]),
+          })
+        : request;
+      const nativeParams = (
+        request as Request & { readonly params?: Record<string, string> }
+      ).params;
+      if (trackedRequest !== request && nativeParams !== undefined) {
+        Object.defineProperty(trackedRequest, "params", {
+          value: nativeParams,
+          enumerable: true,
+        });
+      }
 
       try {
-        const response = handler(request);
+        const response = handler(trackedRequest);
         if (response instanceof Promise) {
           return response
             .then((value) =>
-              this.requestIdEnabled ? addRequestId(value) : value,
+              requestId ? addRequestId(value, requestId) : value,
             )
             .finally(() => this.requests.leave());
         }
         this.requests.leave();
-        return this.requestIdEnabled ? addRequestId(response) : response;
+        return requestId ? addRequestId(response, requestId) : response;
       } catch (error) {
         this.requests.leave();
         throw error;

@@ -1,7 +1,7 @@
 import type { TSchema } from "@sinclair/typebox";
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 import { compileValidator } from "./validation";
-import { ValidationError } from "../errors/index";
+import { ValidationError } from "../errors";
 
 function convertQueryValue(
   value: unknown,
@@ -55,5 +55,16 @@ export function QueryParams(
     route.querySchema = schema;
     route.queryValidator = validator;
     route.queryDefaults = defaults ? { ...defaults } : undefined;
+  };
+}
+
+/** Valida o conjunto de headers consumido pela rota com um schema TypeBox. */
+export function HeaderParams(schema: TSchema): MethodDecorator {
+  const validator = compileValidator(schema);
+
+  return (target, propertyKey) => {
+    const route = getOrCreateRoute(target, propertyKey);
+    route.headerSchema = schema;
+    route.headerValidator = validator;
   };
 }

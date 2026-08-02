@@ -1,4 +1,4 @@
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 
 /** Define um método executado depois que a transação da rota foi commitada. */
 export function AfterCommit(method: string | symbol): MethodDecorator {

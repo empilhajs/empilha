@@ -1,5 +1,7 @@
-import { runWithRequestContext, type RequestScope } from "../context/index";
+import { runWithRequestContext, type RequestScope } from "../context";
 import { ApplicationLogger, type Logger } from "../utils/logger";
+import type { Clock } from "../di";
+import type { ApplicationEvents } from "./index";
 
 /** Opções de concorrência e limite da fila de tarefas em background. */
 export type BackgroundSchedulerOptions = {
@@ -30,8 +32,20 @@ export class BackgroundScheduler {
 
   private logger: Logger = new ApplicationLogger();
 
+  private events: ApplicationEvents | undefined;
+
+  private clock: Clock = { now: () => performance.now() };
+
   setLogger(logger: Logger): void {
     this.logger = logger;
+  }
+
+  setEvents(events: ApplicationEvents): void {
+    this.events = events;
+  }
+
+  setClock(clock: Clock): void {
+    this.clock = clock;
   }
 
   /**
@@ -110,6 +124,8 @@ export class BackgroundScheduler {
 
   private start(job: BackgroundJob): void {
     this.running++;
+    const startedAt = this.clock.now();
+    let failure: unknown;
 
     const execution = runWithRequestContext(job.scope, () =>
       Promise.resolve().then(job.task),
@@ -117,6 +133,7 @@ export class BackgroundScheduler {
 
     void execution
       .catch(async (error) => {
+        failure = error;
         try {
           await Promise.resolve(this.errorHandler?.(error, job.metadata));
         } catch (observerError) {
@@ -131,6 +148,30 @@ export class BackgroundScheduler {
         }
       })
       .finally(() => {
+        const metadata = job.metadata as {
+          path?: string;
+          propertyKey?: string | symbol;
+        };
+        this.events?.emit(
+          "background.completed",
+          Object.freeze({
+            requestId: job.scope.requestId,
+            route:
+              metadata?.path ??
+              (metadata?.propertyKey
+                ? String(metadata.propertyKey)
+                : "background"),
+            durationMs: Math.max(0, this.clock.now() - startedAt),
+            status: failure === undefined ? "completed" : "failed",
+            ...(failure
+              ? {
+                  error: Object.freeze({
+                    name: failure instanceof Error ? failure.name : "Error",
+                  }),
+                }
+              : {}),
+          }),
+        );
         this.running--;
         job.resolve();
         this.drain();

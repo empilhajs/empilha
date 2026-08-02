@@ -1,4 +1,4 @@
-import { abortRequestScope, type RequestScope } from "../context/index";
+import { abortRequestScope, type RequestScope } from "../context";
 
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 const JSON_DECODER = new TextDecoder();
@@ -88,25 +88,8 @@ export class JsonBodyReader {
       return this.readWithTimeout(request.body, scope);
     }
 
-    // O Bun possui um caminho nativo muito rápido para JSON pequeno quando o
-    // Content-Length já prova que o limite será respeitado. Sem esse dado, a
-    // leitura precisa materializar o body para verificar o limite.
-    if (
-      !this.customMaxBytes &&
-      declaredLength !== null &&
-      declaredLength > 0 &&
-      declaredLength <= this.maxBytes
-    ) {
-      try {
-        return await request.json();
-      } catch (error) {
-        if (error instanceof SyntaxError) {
-          throw new RequestBodyError(400, "Invalid JSON body");
-        }
-        throw error;
-      }
-    }
-
+    // Content-Length é apenas uma indicação do cliente. O limite é aplicado
+    // aos bytes efetivamente lidos antes de o JSON ser materializado.
     return this.readChunks(request.body);
   }
 

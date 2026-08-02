@@ -1,5 +1,5 @@
 import type { ApplicationLifecycle } from "./lifecycle";
-import type { Logger } from "../utils/logger";
+import type { Logger } from "../../utils/logger";
 
 export type ApplicationRunOptions = {
   port?: number;
@@ -8,7 +8,7 @@ export type ApplicationRunOptions = {
 
 type RunnerOptions = {
   lifecycle: ApplicationLifecycle;
-  isInitialized: () => boolean;
+  isReady: () => boolean;
   listen: (port: number) => Promise<void>;
   close: () => Promise<void>;
   startHooks: readonly (() => void | Promise<void>)[];
@@ -25,8 +25,10 @@ export class ApplicationRunner {
   constructor(private readonly options: RunnerOptions) {}
 
   async listen(port: number): Promise<void> {
-    if (!this.options.isInitialized()) {
-      throw new Error("Chame app.initialize([...]) antes de app.listen().");
+    if (!this.options.isReady()) {
+      throw new Error(
+        "A aplicação precisa estar pronta antes de app.listen().",
+      );
     }
 
     await this.options.lifecycle.listen(

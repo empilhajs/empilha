@@ -1,5 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 import { compileValidator } from "./validation";
 
 /**

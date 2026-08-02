@@ -4,7 +4,7 @@ import type {
   ServerResponse,
   MiddlewareFn,
 } from "../http/http-adapter";
-import type { RegisteredRouteMetadata } from "../types";
+import type { RegisteredRouteMetadata } from "../core/types";
 import type { QueryClient } from "../sql/postgres-executor";
 
 export type ControllerInstance = Record<PropertyKey, unknown>;
@@ -26,6 +26,7 @@ export type ErrorHandler = (
   error: unknown,
   instance?: ControllerInstance,
 ) => Promise<ServerResponse>;
+export type ResponseNormalizer = (response: ServerResponse) => ServerResponse;
 export type BackgroundExecutor = (
   request: ServerRequest,
   invoke: () => unknown,
@@ -40,6 +41,7 @@ export type RouteCompilerInput = {
   executeSql: SqlExecutor | null;
   executeTransaction?: TransactionExecutor | null;
   handleError: ErrorHandler;
+  normalizeResponse?: ResponseNormalizer;
   middlewares: readonly MiddlewareFn[];
   executeBackground: BackgroundExecutor;
 };

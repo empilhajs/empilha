@@ -4,7 +4,7 @@ import type {
   ServerRequest,
   ServerResponse,
 } from "../http/http-adapter";
-import { NotFoundError } from "../errors/index";
+import { NotFoundError } from "../errors";
 import type {
   RouteCompilerInput,
   CompiledRoute,
@@ -29,6 +29,7 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
     handleError,
     middlewares,
     executeBackground,
+    normalizeResponse,
   } = input;
 
   const execute = async (
@@ -52,6 +53,7 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
         );
         route.queryValidator?.(request.query);
       }
+      route.headerValidator?.(request.headers);
 
       if (route.background) {
         return executeBackground(request, () => {
@@ -105,6 +107,10 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
               route.propertyKey,
               route.parameters.length > 0 ? getArgs(request) : EMPTY_ARGS,
             );
+        // Precedence is intentional: an explicit Web Response wins over the
+        // SQL-derived value and over the route response serializer. When the
+        // controller returns undefined, the declared SQL result is the next
+        // source; only then does the empty-contract response apply.
         const responseValue =
           route.queryName && resolvedResult === undefined
             ? sqlValue
@@ -133,7 +139,8 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
 
       return response;
     } catch (error) {
-      return handleError(error, instance);
+      const handled = await handleError(error, instance);
+      return normalizeResponse ? normalizeResponse(handled) : handled;
     }
   };
 
@@ -160,7 +167,7 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
  * O handler completo executa autorização, validação, SQL, controller,
  * middleware e tratamento de erros.
  *
- * A compilação acontece durante `Empilha.initialize()`. Nenhum controller é
+ * A compilação acontece durante `createApplication()`. Nenhum controller é
  * executado nesta etapa.
  *
  * @param input - Dependências compiladas e metadata da rota.

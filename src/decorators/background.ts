@@ -1,4 +1,4 @@
-import { getOrCreateRoute } from "../metadata";
+import { getOrCreateRoute } from "../core/metadata";
 
 /**
  * Executa o método em background depois de responder à requisição.

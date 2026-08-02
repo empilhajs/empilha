@@ -1,8 +1,8 @@
 import type { TSchema } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
-import { ValidationError } from "../errors/index";
+import { ValidationError } from "../errors";
 import { ensureBuiltinFormats } from "../schema/formats";
-import type { ParameterValidator } from "../types";
+import type { ParameterValidator } from "../core/types";
 
 /**
  * Contrato mínimo de validação usado pelos decorators.
