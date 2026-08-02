@@ -4,18 +4,22 @@ Integra PostgreSQL (`pg`) ao Empilha sem acoplar o framework principal ao
 driver.
 
 ```ts
-import { Empilha } from "empilha"
-import { postgres } from "@empilha/pg"
+import { createApplication, defineModule } from "empilha";
+import { postgres } from "@empilha/pg";
 
-const app = new Empilha()
-  .usePlugin(
-    postgres({
-      url: process.env.DATABASE_URL!,
-      sql: "./src/queries",
-      timeout: 5_000,
-    }),
-  )
-  .initialize([UserController])
+const app = await createApplication(
+  defineModule({
+    name: "app",
+    controllers: [UserController],
+    plugins: [
+      postgres({
+        url: process.env.DATABASE_URL!,
+        sql: "./src/queries",
+        timeout: 5_000,
+      }),
+    ],
+  }),
+);
 ```
 
 `timeout` configura `query_timeout` e `statement_timeout` no `pg`, além do
@@ -26,3 +30,6 @@ no PostgreSQL.
 Se a aplicação fornecer um runner próprio, o método `query()` deve observar o
 `options.signal`. Um runner que ignora o sinal ainda pode continuar executando
 até o próprio timeout do driver, mesmo depois de a requisição receber `504`.
+Pools gerenciados passados diretamente a `app.postgres()` precisam oferecer
+`queryWithOptions`; para um pool sem cancelamento, desabilite explicitamente o
+timeout do framework com `{ timeout: null }` e configure o limite no driver.

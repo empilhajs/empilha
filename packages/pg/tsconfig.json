@@ -3,11 +3,13 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleResolution": "Bundler",
+    "rootDir": "../..",
+    "paths": { "empilha": ["../../src/index.ts"] },
+    "types": ["bun", "node"],
     "strict": true,
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
-    "rootDir": "src",
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts"]
