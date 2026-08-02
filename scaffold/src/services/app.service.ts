@@ -2,7 +2,7 @@ import { Injectable } from "empilha";
 
 @Injectable({ scope: "singleton" })
 export class AppService {
-  getMessage(): string {
-    return "Hello from Empilha";
+  message(): string {
+    return "Empilha 0.2";
   }
 }

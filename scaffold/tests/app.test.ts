@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { createTestApp } from "empilha";
-import { AppController } from "../src/controllers/app.controller";
+import { createTestApplication } from "empilha";
+import { AppModule } from "../src/modules/app.module";
 
 describe("scaffold", () => {
   test("responde à rota inicial sem abrir uma porta", async () => {
-    const app = createTestApp([AppController]);
-    const response = await app.test().get("/");
+    const app = await createTestApplication(AppModule).compile();
+    const response = await app.fetch(new Request("http://test/"));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      message: "Hello from Empilha",
+      message: "Empilha 0.2",
     });
 
     await app.close();

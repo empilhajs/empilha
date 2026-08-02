@@ -1,14 +1,9 @@
-import { Empilha } from "empilha";
-import { Pool } from "pg";
-import { AppController } from "./controllers/app.controller";
+import { createApplication } from "empilha";
+import { AppModule } from "./modules/app.module";
 import config from "../empilha.config";
 
-const { url, ...database } = config.database;
-const pool = new Pool({ connectionString: url });
-
-const app = new Empilha()
-  .configure(config)
-  .postgres(pool, database)
-  .initialize([AppController]);
+const app = await createApplication(AppModule, {
+  runtime: config,
+});
 
 await app.run();
