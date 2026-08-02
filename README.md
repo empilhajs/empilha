@@ -1,24 +1,49 @@
 # 🧱 Empilha
 
-Empilha HTTP para **Bun** e TypeScript, baseado em decorators, contratos
-explícitos e SQL nomeado para criar APIs previsíveis.
+> APIs previsíveis para Bun e TypeScript — com módulos explícitos, contratos verificáveis e SQL nomeado.
 
-O Empilha usa Web Standards (`Request`, `Response` e `AbortSignal`) e mantém
-controllers, validação, SQL e respostas em uma API explícita com decorators.
+O Empilha é um framework HTTP que transforma a composição da aplicação em um contrato claro. Módulos, providers, plugins, controllers e queries formam um grafo que pode ser compilado, diagnosticado, testado e executado pelo mesmo caminho.
+
+```text
+defineModule() → compile → diagnose → app.fetch() / app.run()
+```
+
+## Por que Empilha?
+
+- **Bun-first**, usando `Request`, `Response` e `AbortSignal` como contratos públicos.
+- **Módulos de verdade**, com imports, exports, providers privados e tokens tipados.
+- **Falha cedo**, agregando problemas de DI, rotas, plugins e SQL antes do primeiro request.
+- **Produção e testes no mesmo grafo**, sem reconstruir controllers ou abrir uma porta HTTP.
+- **SQL como contrato**, com bindings, cardinalidade, tipos gerados e verificação de artefatos.
+- **Operação incluída**, com health checks, lifecycle, shutdown, observabilidade e `doctor`.
 
 ## Instalação
+
+Requer [Bun](https://bun.sh) 1.3 ou superior.
 
 ```sh
 bun add empilha
 ```
 
-Empilha requer [Bun](https://bun.sh) e TypeScript com
-`experimentalDecorators` habilitado.
+Para começar com um projeto completo:
 
-## Comece em poucos minutos
+```sh
+bun create empilha minha-api
+cd minha-api
+bun install
+bun run dev
+```
+
+## Uma rota em poucos linhas
 
 ```ts
-import { Controller, Empilha, Get, Param } from "empilha";
+import {
+  Controller,
+  Get,
+  Param,
+  createApplication,
+  defineModule,
+} from "empilha";
 
 @Controller("/hello")
 class HelloController {
@@ -28,45 +53,28 @@ class HelloController {
   }
 }
 
-const app = new Empilha().initialize([HelloController]);
+const AppModule = defineModule({
+  name: "app",
+  controllers: [HelloController],
+});
 
+const app = await createApplication(AppModule);
 await app.run({ port: 4000 });
 ```
 
-```sh
-curl http://localhost:4000/hello/Ada
-# {"message":"Olá, Ada!"}
-```
-
-Para iniciar um projeto com PostgreSQL, OpenAPI, health check e scripts de
-desenvolvimento:
-
-```sh
-bun create empilha app
-cd app
-bun install
-bun run dev
-```
-
-## O que você encontra
-
-- Controllers e rotas tipadas com decorators explícitos.
-- Parâmetros de path, query, headers, body, request e contexto de requisição.
-- Validação e serialização de respostas com TypeBox.
-- Container de dependências com escopos `singleton`, `transient` e `request`.
-- SQL nomeado para PostgreSQL, bindings, transações e tipos gerados.
-- Middleware global, de controller ou de rota; autenticação e autorização.
-- OpenAPI 3.1 e Swagger UI gerados das declarações de rota.
-- Timeouts cooperativos, shutdown ordenado, health checks e tarefas em segundo plano.
-- Logging estruturado com request ID, status e duração.
-- Limites de body e headers, timeout cooperativo e limite de concorrência.
-- Cliente de teste que exercita a aplicação sem abrir uma porta HTTP.
-
-## Exemplo: endpoint validado e documentado
+O mesmo objeto pode ser usado sem servidor:
 
 ```ts
-import { Body, Controller, Post, Returns, Status } from "empilha/decorators";
-import { t, type Infer } from "empilha/schema";
+const response = await app.fetch(new Request("http://localhost/hello/Ada"));
+
+console.log(response.status); // 200
+console.log(await response.json()); // { message: "Olá, Ada!" }
+```
+
+## Contratos no centro
+
+```ts
+import { Body, Controller, Post, t, type Infer } from "empilha";
 
 const CreateUser = t.Object({
   name: t.String({ minLength: 1 }),
@@ -74,62 +82,76 @@ const CreateUser = t.Object({
 });
 type CreateUser = Infer<typeof CreateUser>;
 
-const User = t.Object({
-  id: t.String(),
-  name: t.String(),
-  email: t.String(),
-});
-
 @Controller("/users")
 class UsersController {
   @Post("/")
-  @Status(201)
-  @Returns(User)
   create(@Body(CreateUser) body: CreateUser) {
     return { id: crypto.randomUUID(), ...body };
   }
 }
 ```
 
-`@Body(schema)` valida e injeta o JSON recebido. Veja o exemplo completo na
-[documentação de validação](https://empilhajs.github.io/empilha-docs/validation).
+Schemas validam a entrada e alimentam a documentação OpenAPI.
 
-## Recursos
+## SQL nomeado
 
-| Recurso                | Uso                                                        | Documentação                                                                    |
-| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Rotas e parâmetros     | `@Get`, `@Post`, `@Param`, `@Query`                        | [Criar uma rota](https://empilhajs.github.io/empilha-docs/routes)               |
-| Respostas e schemas    | `@Status`, `@Produces`, `@Returns`                         | [Definir respostas](https://empilhajs.github.io/empilha-docs/responses)         |
-| Injeção de dependência | `@Injectable`, `@Inject`, `app.provide()`                  | [Services e DI](https://empilhajs.github.io/empilha-docs/services)              |
-| PostgreSQL             | `@Sql`, `@Transaction("read")`, `@Transaction("write")`    | [Usar SQL em uma rota](https://empilhajs.github.io/empilha-docs/sql)            |
-| Middleware e segurança | `app.useMiddleware()`, `app.usePlugin()`, `@Use`, `@Roles` | [Middleware e autorização](https://empilhajs.github.io/empilha-docs/middleware) |
-| Erros                  | `HttpError`, `@Catch`, `app.catch()`                       | [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors)          |
-| Operação               | limites, CORS, health, shutdown                            | [Configurações comuns](https://empilhajs.github.io/empilha-docs/configuration)  |
+Queries ficam em arquivos `.sql`, com nome, cardinalidade e origem preservados no artefato gerado:
 
-## Documentação
+```sql
+-- src/queries/tasks.sql
+-- @query listTasks many
+SELECT id, title
+FROM tasks
+WHERE owner_id = :auth.userId
+ORDER BY created_at DESC;
+```
 
-### Começar uma API
+O controller usa o artefato tipado, e o Empilha verifica bindings, visibilidade, hash do SQL e compatibilidade com a resposta antes de servir:
 
-- [Primeiros passos](https://empilhajs.github.io/empilha-docs) — instale, crie uma rota e teste sem servidor.
-- [Controllers e rotas](https://empilhajs.github.io/empilha-docs/routes) — path, query, headers, body, schemas e status.
-- [Organize o projeto](https://empilhajs.github.io/empilha-docs/project) — estrutura de uma API Empilha pronta para crescer.
+```ts
+import { Controller, Get, Result, Sql } from "empilha";
+import { queryArtifacts } from "./queries/query-artifacts";
 
-### Construir recursos
+@Controller("/tasks")
+class TasksController {
+  @Get("/")
+  @Sql(queryArtifacts.listTasks)
+  @Result("many")
+  list() {}
+}
+```
 
-- [SQL nomeado](https://empilhajs.github.io/empilha-docs/sql) — arquivos `.sql`, resultados e transações PostgreSQL.
-- [Bindings SQL](https://empilhajs.github.io/empilha-docs/sql-bindings) — bindings de request, casts e validação dos parâmetros.
-- [JWT e autenticação](https://empilhajs.github.io/empilha-docs/authentication) — Bearer token, `@Inject()`, `@Identity()` e roles.
-- [Injeção de dependência](https://empilhajs.github.io/empilha-docs/services) — providers, mocks e escopos de requisição.
-- [Middleware e background](https://empilhajs.github.io/empilha-docs/middleware) — políticas transversais, roles, health checks e jobs.
-- [Tratamento de erros](https://empilhajs.github.io/empilha-docs/errors) — `HttpError`, `@Catch`, catcher global e falhas de validação.
-- [Contexto de requisição](https://empilhajs.github.io/empilha-docs/scopes) — `AbortSignal`, `requestId`, tarefas e DI request-scoped.
+Gere os artefatos e valide o projeto com:
 
-### Operar e entender
+```sh
+bun scripts/application/generate-query-types.ts src/queries src/queries/query-artifacts.ts --artifacts
+bun scripts/application/doctor.ts --strict
+```
 
-- [Configuração](https://empilhajs.github.io/empilha-docs/configuration) — CORS, limites, OpenAPI, banco, shutdown e observabilidade.
-- [OpenAPI](https://empilhajs.github.io/empilha-docs/openapi) — contrato da API gerado a partir das rotas.
-- [Testes](https://empilhajs.github.io/empilha-docs/testing) — `app.test()`, requests brutas e mocks de dependência.
-- [Ciclo de uma requisição](https://empilhajs.github.io/empilha-docs/execution-model) — ordem do bootstrap e das etapas HTTP.
+## Integrações oficiais
+
+As integrações são opcionais e seguem o mesmo modelo declarativo:
+
+```sh
+bun add @empilha/pg pg
+bun add @empilha/jwt jose
+```
+
+- [`@empilha/pg`](./packages/pg) — PostgreSQL, queries nomeadas, transações e health check.
+- [`@empilha/jwt`](./packages/jwt) — autenticação JWT, identidade tipada e roles.
+
+## Testes sem porta HTTP
+
+```ts
+import { createTestApplication } from "empilha";
+
+const app = await createTestApplication(AppModule).compile();
+const response = await app.fetch(new Request("http://test/hello/Ada"));
+
+await app.close();
+```
+
+A testing application compila o módulo de produção e permite substituir providers, plugins e integrações antes da execução.
 
 ## Desenvolvimento do framework
 
@@ -138,14 +160,17 @@ bun install
 bun run check
 ```
 
-`check` executa typecheck, formatação, lint, testes e build. Para trabalhar em
-uma etapa específica, use:
+Comandos úteis:
 
 ```sh
-bun run typecheck
-bun test
-bun run format
-bun run build
+bun run typecheck       # tipos
+bun test                # testes
+bun run lint            # lint
+bun run format:check    # formatação
+bun run build           # build e declarações
+bun run release:check   # validação da release
 ```
 
-O build gera JavaScript ESM e declarações TypeScript em `dist/`.
+## Licença
+
+[MIT](./LICENSE)
