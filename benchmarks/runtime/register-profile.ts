@@ -1,10 +1,10 @@
-import { Controller, Empilha, Get } from "../src";
-import { ControllerRegistry } from "../src/application/controller-registry";
-import { RouteHandlerBuilder } from "../src/application/route-handler-builder";
-import { ControllerBootstrap } from "../src/application/controller-bootstrap";
-import { OpenApiDocumentBuilder } from "../src/openapi/openapi-document";
-import { HttpAdapter } from "../src/http/http-adapter";
-import { RouteTree } from "../src/router/route-tree";
+import { Controller, createApplication, defineModule, Get } from "../../src";
+import { ControllerRegistry } from "../../src/application/bootstrap/controller-registry";
+import { RouteHandlerBuilder } from "../../src/application/bootstrap/route-handler-builder";
+import { ControllerBootstrap } from "../../src/application/bootstrap/controller-bootstrap";
+import { OpenApiDocumentBuilder } from "../../src/openapi/openapi-document";
+import { HttpAdapter } from "../../src/http/http-adapter";
+import { RouteTree } from "../../src/router/route-tree";
 
 const size = Number(process.argv[2] ?? 10_000);
 
@@ -20,7 +20,7 @@ function build(count: number) {
     Controller(`/c${i}`)(C);
     controllers.push(C);
   }
-  return controllers;
+  return defineModule({ name: `register-profile-${count}`, controllers });
 }
 
 const samples: Record<string, number[]> = {};
@@ -43,8 +43,7 @@ function wrap(label: string, target: object, name: string): void {
   };
 }
 
-wrap("empilha.initialize", Empilha.prototype, "initialize");
-wrap("registry.initialize", ControllerRegistry.prototype, "initialize");
+wrap("registry.register", ControllerRegistry.prototype, "register");
 wrap("prepareController", ControllerRegistry.prototype, "prepareController");
 wrap("handler.compile", RouteHandlerBuilder.prototype, "compile");
 wrap("provideController", ControllerBootstrap.prototype, "provideController");
@@ -54,16 +53,19 @@ wrap("openapi.addRoute", OpenApiDocumentBuilder.prototype, "addRoute");
 wrap("http.addRoute", HttpAdapter.prototype, "addRoute");
 wrap("router.insert", RouteTree.prototype, "insert");
 
-const controllers = build(size);
-const app = new Empilha().configureHttp({ cors: false });
-app.initialize(controllers as never);
-
-const total = samples["empilha.initialize"][0];
+const module = build(size);
+const start = performance.now();
+const app = await createApplication(module, {
+  configure(runtime) {
+    runtime.configureHttp({ cors: false });
+  },
+});
+const total = performance.now() - start;
 const sum = (name: string): number =>
   (samples[name] ?? []).reduce((acc, t) => acc + t, 0);
 const avg = (name: string): number => sum(name) / (samples[name]?.length ?? 1);
 
-const registry = sum("registry.initialize");
+const registry = sum("registry.register");
 const prep = sum("prepareController");
 const compile = sum("handler.compile");
 const openApi = sum("openapi.addRoute");
@@ -83,9 +85,9 @@ function row(label: string, ms: number, calls: number, indent = ""): void {
   );
 }
 
-console.log(`\n=== Perfil de initialize — ${size} rotas ===\n`);
-row("total initialize", total, 1);
-row("registry.initialize", registry, 1);
+console.log(`\n=== Perfil de createApplication — ${size} rotas ===\n`);
+row("total createApplication", total, 1);
+row("registry.register", registry, 1);
 row("prepareController", prep, size, "  └─ ");
 row("handlerBuilder.compile", compile, size, "      ├─ ");
 row("bootstrap (provide+resolver+scope)", bootstrap, size * 3, "      ├─ ");
@@ -107,3 +109,5 @@ console.log("\n=== Média por rota ===\n");
 console.log(`handler compile : ${avg("handler.compile").toFixed(3)} ms/rota`);
 console.log(`openapi addRoute: ${avg("openapi.addRoute").toFixed(3)} ms/rota`);
 console.log(`http addRoute   : ${avg("http.addRoute").toFixed(3)} ms/rota`);
+
+await app.close();

@@ -1,6 +1,6 @@
 {
   "name": "empilha",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "private": false,
   "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
   "keywords": [
@@ -20,6 +20,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/empilhajs/empilha.git"
+  },
+  "bin": {
+    "empilha": "scripts/application/doctor.ts"
   },
   "files": [
     "dist",
@@ -77,17 +80,28 @@
   "scripts": {
     "build": "bun build src/index.ts src/application/index.ts src/context/index.ts src/decorators/index.ts src/di/index.ts src/errors/index.ts src/http/index.ts src/openapi/index.ts src/schema/index.ts src/sql/index.ts --outdir dist --target bun --format esm --external @sinclair/typebox --root src && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
-    "check": "bun run check:code && bun run check:tests && bun run check:packages && bun run build && bun run check:package",
-    "check:package": "bun scripts/verify-package.ts",
-    "check:packages": "bun run --cwd packages/jwt check && bun run --cwd packages/pg check && bun run --cwd scaffold check",
+    "check": "bun run check:code && bun run check:bun && bun run check:budgets && bun run release:check && bun run check:tests && bun run check:packages && bun run build && bun run check:package && bun run release:artifacts",
+    "check:package": "bun scripts/release/verify-package.ts --consumer",
+    "check:packages": "bun run --cwd packages/jwt check && bun run --cwd packages/pg check",
     "check:code": "bun run typecheck && bun run format:check && bun run lint",
+    "check:bun": "bun scripts/checks/check-bun-version.ts",
     "check:tests": "bun run test",
-    "benchmark:register": "for n in 25 1000 10000; do bun --expose-gc benchmarks/register.ts $n; done",
-    "benchmark:path": "bun benchmarks/path.ts",
-    "benchmark:request": "bun --expose-gc benchmarks/request-profile.ts",
-    "benchmark:build": "bun benchmarks/build-profile.ts",
-    "create:app": "bun scripts/create-app.ts",
-    "migrate": "bun scripts/migrate.ts",
+    "benchmark:register": "for n in 25 1000 10000; do bun --expose-gc benchmarks/runtime/register.ts $n; done",
+    "benchmark:baseline": "bun --expose-gc benchmarks/runtime/baseline.ts",
+    "benchmark:path": "bun benchmarks/runtime/path.ts",
+    "benchmark:request": "bun --expose-gc benchmarks/runtime/request-profile.ts",
+    "benchmark:build": "bun benchmarks/build/build-profile.ts",
+    "benchmark:bundle": "bun benchmarks/build/bundle-smoke.ts",
+    "benchmark:types": "bun benchmarks/build/type-profile.ts",
+    "benchmark:plugins": "bun --expose-gc benchmarks/runtime/plugin-profile.ts",
+    "benchmark:validators": "bun --expose-gc benchmarks/runtime/validator-profile.ts",
+    "check:budgets": "bun scripts/checks/check-budgets.ts",
+    "release:check": "bun scripts/release/release.ts",
+    "release:artifacts": "bun scripts/release/release-artifacts.ts",
+    "release:validate": "bun scripts/release/validate-release-candidate.ts",
+    "create:app": "bun scripts/application/create-app.ts",
+    "check:consumer": "bun run build && bun run --cwd packages/jwt build && bun run --cwd packages/pg build && bun scripts/release/verify-package.ts --consumer",
+    "migrate": "bun scripts/database/migrate.ts",
     "format": "oxfmt src tests scripts scaffold benchmarks docs README.md package.json tsconfig.json tsconfig.build.json .oxfmtrc.json .oxlintrc.json",
     "format:check": "bun run format --check",
     "lint": "oxlint src tests scripts scaffold benchmarks --deny-warnings",

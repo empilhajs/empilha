@@ -15,7 +15,7 @@ if (!targetArg) {
 }
 
 const frameworkRoot = path.resolve(
-  frameworkArg ?? path.join(import.meta.dir, ".."),
+  frameworkArg ?? path.join(import.meta.dir, "../.."),
 );
 const templateRoot = path.join(frameworkRoot, "scaffold");
 const targetRoot = path.resolve(targetArg);
@@ -53,7 +53,6 @@ console.log(`Projeto criado em ${targetRoot}`);
 console.log("Próximos passos:");
 console.log(`  cd ${path.relative(process.cwd(), targetRoot) || "."}`);
 console.log("  bun install");
-console.log("  bun run generate:queries");
 console.log("  bun run typecheck");
 console.log("  bun test");
 console.log("  bun run check");

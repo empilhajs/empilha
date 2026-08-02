@@ -1,12 +1,13 @@
 import {
   Body,
   Controller,
-  Empilha,
+  createApplication,
+  defineModule,
   Get,
   Param,
   Post,
   QueryParams,
-} from "../src";
+} from "../../src";
 import * as t from "@sinclair/typebox";
 
 /**
@@ -16,7 +17,7 @@ import * as t from "@sinclair/typebox";
  * o que isola o custo do pipeline do framework do custo de rede/soquete.
  *
  * Como executar:
- *   bun --expose-gc benchmarks/request-profile.ts [concurrency] [req/task] [batch]
+ *   bun --expose-gc benchmarks/runtime/request-profile.ts [concurrency] [req/task] [batch]
  *   bun run benchmark:request
  *
  * p50/p95/p99 são calculados sobre a latência de cada request (µs).
@@ -65,8 +66,17 @@ class BenchController {
   }
 }
 
-const app = new Empilha().configureHttp({ cors: false });
-app.validate([BenchController]).initialize([BenchController]);
+const app = await createApplication(
+  defineModule({
+    name: "request-profile",
+    controllers: [BenchController],
+  }),
+  {
+    configure(runtime) {
+      runtime.configureHttp({ cors: false });
+    },
+  },
+);
 const client = app.test();
 
 const scenarios: Scenario[] = [

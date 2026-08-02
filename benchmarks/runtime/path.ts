@@ -1,4 +1,4 @@
-import { normalizePath, splitPath } from "../src/router/path";
+import { normalizePath, splitPath } from "../../src/router/path";
 
 const iterations = Number(Bun.argv[2] ?? 5_000_000);
 
