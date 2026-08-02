@@ -1,17 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { Empilha } from "../../src";
+import { createApplication } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("health checks", () => {
   test("liveness não executa checks de readiness", async () => {
     let checksRun = 0;
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .healthCheck("database", () => {
-        checksRun++;
-        throw new Error("database unavailable");
-      });
-
-    app.validate([]).initialize([]);
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime.configureHttp({ cors: false }).healthCheck("database", () => {
+          checksRun++;
+          throw new Error("database unavailable");
+        });
+      },
+    });
 
     const response = await app.test().get("/health/live");
 
@@ -31,12 +32,14 @@ describe("health checks", () => {
       await pending;
       return true;
     };
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .healthCheck("first", check)
-      .healthCheck("second", check);
-
-    app.validate([]).initialize([]);
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime
+          .configureHttp({ cors: false })
+          .healthCheck("first", check)
+          .healthCheck("second", check);
+      },
+    });
 
     const response = app.test().get("/health/ready");
     expect(started).toBe(2);
@@ -51,18 +54,20 @@ describe("health checks", () => {
       release = () => resolve(true);
     });
     let aborted = false;
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .configureHealthChecks({ timeout: 5, maxConcurrentRequests: 1 })
-      .healthCheck("slow", (signal) => {
-        signal?.addEventListener("abort", () => {
-          aborted = true;
-        });
-        return pending;
-      })
-      .healthCheck("down", () => false);
-
-    app.validate([]).initialize([]);
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime
+          .configureHttp({ cors: false })
+          .configureHealthChecks({ timeout: 5, maxConcurrentRequests: 1 })
+          .healthCheck("slow", (signal) => {
+            signal?.addEventListener("abort", () => {
+              aborted = true;
+            });
+            return pending;
+          })
+          .healthCheck("down", () => false);
+      },
+    });
 
     const first = app.test().get("/health/ready");
     expect((await app.test().get("/health/ready")).status).toBe(503);
@@ -79,11 +84,13 @@ describe("health checks", () => {
   });
 
   test("mantém o request context quando o timeout do handler está desativado", async () => {
-    const app = new Empilha()
-      .configureHttp({ cors: false, handlerTimeout: null })
-      .healthCheck("ok", () => true);
-
-    app.validate([]).initialize([]);
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime
+          .configureHttp({ cors: false, handlerTimeout: null })
+          .healthCheck("ok", () => true);
+      },
+    });
 
     const response = await app.test().get("/health/ready");
 
@@ -96,15 +103,17 @@ describe("health checks", () => {
   });
 
   test("retorna saudável, degradado, erro e múltiplos checks", async () => {
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .healthCheck("ok", async () => true)
-      .healthCheck("false", () => false)
-      .healthCheck("error", () => {
-        throw new Error("down");
-      });
-
-    app.validate([]).initialize([]);
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime
+          .configureHttp({ cors: false })
+          .healthCheck("ok", async () => true)
+          .healthCheck("false", () => false)
+          .healthCheck("error", () => {
+            throw new Error("down");
+          });
+      },
+    });
 
     const response = await app.test().get("/health/ready");
 
@@ -120,19 +129,18 @@ describe("health checks", () => {
     });
   });
 
-  test("registra health check depois de controllers e rejeita nome duplicado", async () => {
-    const app = new Empilha().configureHttp({ cors: false });
-
-    app.validate([]).initialize([]);
-
-    app.healthCheck("db", () => true);
+  test("registra health check no módulo e rejeita nome duplicado", async () => {
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime.configureHttp({ cors: false }).healthCheck("db", () => true);
+        expect(() => runtime.healthCheck("db", () => true)).toThrow(
+          "já foi registrado",
+        );
+      },
+    });
 
     const response = await app.test().get("/health/ready");
 
     expect(response.status).toBe(200);
-
-    expect(() => {
-      app.healthCheck("db", () => true);
-    }).toThrow("já foi registrado");
   });
 });

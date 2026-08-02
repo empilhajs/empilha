@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   Body,
   Controller,
-  Empilha,
+  createApplication,
   Get,
   Header,
+  HeaderParams,
   Param,
   Post,
   QueryParams,
@@ -16,10 +17,62 @@ import {
   t,
   type OpenApiDocument,
 } from "../../src";
+import { testAuthPlugin, testModule } from "../helpers/test-utils";
 import { OpenApiDocumentBuilder } from "../../src/openapi";
-import type { RegisteredRouteMetadata } from "../../src/types";
+import type { RegisteredRouteMetadata } from "../../src/core/types";
 
 describe("Empilha OpenAPI", () => {
+  test("publica todas as respostas declaradas por status", () => {
+    const success = t.Object({ id: t.Number() });
+    const failure = t.Object({ error: t.String() });
+    const route = {
+      parameters: [],
+      propertyKey: "create",
+      method: "POST",
+      path: "/responses",
+      responses: { "201": success, "400": failure },
+    } as unknown as RegisteredRouteMetadata;
+    const builder = new OpenApiDocumentBuilder();
+    builder.addRoute("Responses", "/responses", route);
+
+    const responses = builder.build().paths["/responses"].post.responses;
+    expect(responses["201"]?.content?.["application/json"]?.schema).toBe(
+      success,
+    );
+    expect(responses["400"]?.content?.["application/json"]?.schema).toBe(
+      failure,
+    );
+  });
+
+  test("publica headers declarados por schema", async () => {
+    @Controller("/headers")
+    class HeadersController {
+      @Get("/")
+      @HeaderParams(
+        t.Object({
+          "x-api-key": t.String(),
+        }),
+      )
+      get() {
+        return { ok: true };
+      }
+    }
+
+    const app = await createApplication(testModule([HeadersController]), {
+      configure: (runtime) => runtime.openapi(),
+    });
+    const document = (await (
+      await app.test().get("/openapi.json")
+    ).json()) as OpenApiDocument;
+    const operation = document.paths["/headers"].get;
+    expect(operation.parameters).toContainEqual({
+      name: "x-api-key",
+      in: "header",
+      required: true,
+      schema: expect.objectContaining({ type: "string" }),
+    });
+  });
+
   test("isola respostas OpenAPI entre operações que compartilham schema", () => {
     const schema = t.Object({ ok: t.Boolean() });
     const route = {
@@ -81,15 +134,18 @@ describe("Empilha OpenAPI", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .openapi({
-        title: "Users API",
-        version: "2.0.0",
-      })
-      .auth(() => ({ valid: true, roles: ["admin"] }))
-      .validate([Users])
-      .initialize([Users]);
+    const app = await createApplication(
+      testModule([Users], {
+        plugins: [testAuthPlugin(() => ({ valid: true, roles: ["admin"] }))],
+      }),
+      {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false }).openapi({
+            title: "Users API",
+            version: "2.0.0",
+          }),
+      },
+    );
 
     const documentResponse = await app.test().get("/openapi.json");
     const document = (await documentResponse.json()) as OpenApiDocument;
@@ -135,17 +191,15 @@ describe("Empilha OpenAPI", () => {
     });
     expect(create?.responses["202"]).toBeDefined();
     const validationSchema = create?.responses["400"]?.content?.[
-      "application/json"
-    ].schema as { anyOf?: unknown[] };
-    expect(validationSchema.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({ error: expect.anything() }),
-        }),
-        expect.objectContaining({
-          properties: expect.objectContaining({ errors: expect.anything() }),
-        }),
-      ]),
+      "application/problem+json"
+    ].schema as { properties?: Record<string, unknown> };
+    expect(validationSchema.properties).toEqual(
+      expect.objectContaining({
+        type: expect.anything(),
+        title: expect.anything(),
+        status: expect.anything(),
+        errors: expect.anything(),
+      }),
     );
     expect(document.components?.securitySchemes.bearerAuth.scheme).toBe(
       "bearer",
@@ -160,7 +214,7 @@ describe("Empilha OpenAPI", () => {
     expect(docsHtml).toContain("swagger-ui-bundle.js");
   });
 
-  test("pode ser ativado depois do registro", async () => {
+  test("inclui no documento as rotas compiladas do módulo", async () => {
     @Controller("/late")
     class Late {
       @Get("/")
@@ -171,11 +225,9 @@ describe("Empilha OpenAPI", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Late])
-      .initialize([Late])
-      .openapi();
+    const app = await createApplication(testModule([Late]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }).openapi(),
+    });
     const document = (await (
       await app.test().get("/openapi.json")
     ).json()) as OpenApiDocument;
@@ -203,12 +255,15 @@ describe("Empilha OpenAPI", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .openapi()
-      .auth(() => ({ valid: true, roles: ["admin"] }))
-      .validate([Admin])
-      .initialize([Admin]);
+    const app = await createApplication(
+      testModule([Admin], {
+        plugins: [testAuthPlugin(() => ({ valid: true, roles: ["admin"] }))],
+      }),
+      {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false }).openapi(),
+      },
+    );
 
     expect((await app.test().get("/admin/1")).status).toBe(401);
     expect(
@@ -246,12 +301,15 @@ describe("Empilha OpenAPI", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .openapi()
-      .auth(() => ({ valid: true }))
-      .validate([Profile])
-      .initialize([Profile]);
+    const app = await createApplication(
+      testModule([Profile], {
+        plugins: [testAuthPlugin(() => ({ valid: true }))],
+      }),
+      {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false }).openapi(),
+      },
+    );
 
     expect((await app.test().get("/me/")).status).toBe(401);
     expect(
@@ -281,12 +339,15 @@ describe("Empilha OpenAPI", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .openapi()
-      .auth(() => ({ valid: true }))
-      .validate([Search])
-      .initialize([Search]);
+    const app = await createApplication(
+      testModule([Search], {
+        plugins: [testAuthPlugin(() => ({ valid: true }))],
+      }),
+      {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false }).openapi(),
+      },
+    );
     const document = (await (
       await app.test().get("/openapi.json")
     ).json()) as OpenApiDocument;
@@ -303,8 +364,17 @@ describe("Empilha OpenAPI", () => {
       type: "string",
     });
     expect(
-      operation?.responses["400"]?.content?.["application/json"]?.schema,
-    ).toEqual(expect.objectContaining({ anyOf: expect.any(Array) }));
+      operation?.responses["400"]?.content?.["application/problem+json"]
+        ?.schema,
+    ).toEqual(
+      expect.objectContaining({
+        type: "object",
+        properties: expect.objectContaining({
+          status: expect.any(Object),
+          title: expect.any(Object),
+        }),
+      }),
+    );
     expect(operation?.responses["401"]).toBeDefined();
     expect(operation?.responses["403"]).toBeDefined();
   });

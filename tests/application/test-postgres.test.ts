@@ -61,4 +61,23 @@ describe("testPostgres", () => {
       }),
     ).toEqual({ rows: [{ id: 1 }] });
   });
+
+  test("registra chamadas e comandos de transação no fake", async () => {
+    const database = testPostgres([{ id: 1 }]);
+    const client = await database.connect!();
+
+    await client.query("BEGIN");
+    await client.query("SELECT 1", [7]);
+    await client.query("COMMIT");
+
+    expect(database.calls).toEqual([
+      { sql: "BEGIN", params: [], transaction: false },
+      { sql: "SELECT 1", params: [7], transaction: true },
+      { sql: "COMMIT", params: [], transaction: true },
+    ]);
+    expect(database.transactions).toEqual([
+      { action: "begin" },
+      { action: "commit" },
+    ]);
+  });
 });

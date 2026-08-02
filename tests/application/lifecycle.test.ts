@@ -3,15 +3,16 @@ import {
   AfterResponse,
   Context,
   Controller,
-  Empilha,
+  createApplication,
   Get,
   Inject,
   Produces,
   type RequestScope,
 } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("Empilha lifecycle", () => {
-  test("permite validar e inicializar em fases separadas", async () => {
+  test("createApplication ativa o módulo uma vez e bloqueia mudanças estruturais tardias", async () => {
     class Routes {
       @Get("/")
       get() {
@@ -20,37 +21,18 @@ describe("Empilha lifecycle", () => {
     }
     Controller("/explicit-lifecycle")(Routes);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Routes]);
-    app.initialize([Routes]);
+    const app = await createApplication(testModule([Routes]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect((await app.test().get("/explicit-lifecycle")).status).toBe(200);
-    await app.close();
-  });
-
-  test("exige os mesmos controllers entre validate e initialize", () => {
-    class First {
-      @Get("/")
-      get() {
-        return "first";
-      }
-    }
-    Controller("/first")(First);
-
-    class Second {
-      @Get("/")
-      get() {
-        return "second";
-      }
-    }
-    Controller("/second")(Second);
-
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([First]);
-
-    expect(() => app.initialize([Second])).toThrow(
-      "mesmos controllers usados em validate",
+    expect(() => app.registerQuery("late", "SELECT 1")).toThrow(
+      "fase configure",
     );
+    expect(() => app.configureHttp({ requestId: false })).toThrow(
+      "fase configure",
+    );
+    await app.close();
   });
 
   test("faz rollback das rotas se o health check conflitar no bootstrap", async () => {
@@ -62,77 +44,25 @@ describe("Empilha lifecycle", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .healthCheck("ok", () => true);
-
-    expect(() => app.initialize([ConflictingHealthRoute])).toThrow();
-    expect((await app.test().get("/health/ready")).status).toBe(404);
-    expect(() => app.initialize([ConflictingHealthRoute])).toThrow("bootstrap");
-  });
-
-  test("faz rollback das rotas e marca a aplicação como falha após hook", async () => {
-    @Controller("/hook-failure")
-    class HookFailureRoute {
-      @Get("/")
-      get() {
-        return "não deveria ser publicado";
-      }
-    }
-
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .onAfterInitialize(() => {
-        throw new Error("hook failed");
-      });
-
-    expect(() => app.initialize([HookFailureRoute])).toThrow("hook failed");
-    expect((await app.test().get("/hook-failure")).status).toBe(404);
-    expect(() => app.initialize([HookFailureRoute])).toThrow("bootstrap");
-  });
-
-  test("executa hooks do lifecycle e bloqueia alterações estruturais tardias", () => {
-    const events: string[] = [];
-    class Routes {
-      @Get("/")
-      get() {
-        return "ok";
-      }
-    }
-    Controller("/hooks")(Routes);
-
-    const app = new Empilha()
-      .onBeforeValidate(() => events.push("before"))
-      .onAfterInitialize(() => events.push("after"))
-      .validate([Routes])
-      .initialize([Routes]);
-
-    expect(events).toEqual(["before", "after"]);
-    expect(() => app.registerQuery("late", "SELECT 1")).toThrow(
-      "fase configure",
-    );
-    expect(() => app.configureHttp({ requestId: false })).toThrow(
-      "fase configure",
-    );
-    expect(() => app.validate([Routes]).initialize([Routes])).toThrow(
-      "fase configure",
-    );
+    await expect(
+      createApplication(testModule([ConflictingHealthRoute]), {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false }).healthCheck("ok", () => true),
+      }),
+    ).rejects.toThrow("Rota");
   });
 
   test("executa onStart após o adapter iniciar", async () => {
     let started = false;
-    const app = new Empilha().onStart(() => {
-      started = true;
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime.onStart(() => {
+          started = true;
+        });
+      },
     });
-    app.validate([]).initialize([]);
 
-    const internals = app as unknown as {
-      http: { listen: (port: number) => Promise<void> };
-    };
-    internals.http.listen = async () => {};
-
-    const port = 40_000 + Math.floor(Math.random() * 1_000);
-    await app.listen(port);
+    await app.listen(0);
     expect(started).toBe(true);
     expect(() => app.onStart(() => {})).toThrow("antes de app.listen");
 
@@ -140,7 +70,7 @@ describe("Empilha lifecycle", () => {
   });
 
   test("rejeita hook de fechamento depois que a aplicação encerra", async () => {
-    const app = new Empilha();
+    const app = await createApplication(testModule([]));
 
     await app.close();
 
@@ -157,10 +87,9 @@ describe("Empilha lifecycle", () => {
     }
     Controller("/live")(Live);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Live])
-      .initialize([Live]);
+    const app = await createApplication(testModule([Live]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     try {
       await app.listen(0);
@@ -172,13 +101,8 @@ describe("Empilha lifecycle", () => {
         return;
       throw error;
     }
-    const internals = app as unknown as {
-      http: { port: number | null };
-    };
-    expect(internals.http.port).not.toBeNull();
-    const response = await fetch(
-      `http://localhost:${internals.http.port}/live`,
-    );
+    expect(app.url).not.toBeNull();
+    const response = await fetch(new URL("/live", app.url!));
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("live");
@@ -208,10 +132,10 @@ describe("Empilha lifecycle", () => {
 
     Controller("/slow-handler")(Slow);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false, handlerTimeout: 5 })
-      .validate([Slow])
-      .initialize([Slow]);
+    const app = await createApplication(testModule([Slow]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false, handlerTimeout: 5 }),
+    });
 
     const response = await app.test().get("/slow-handler");
 
@@ -249,10 +173,10 @@ describe("Empilha lifecycle", () => {
 
     Controller("/shutdown-timeout")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false, shutdownTimeout: 5 })
-      .validate([Jobs])
-      .initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false, shutdownTimeout: 5 }),
+    });
 
     expect((await app.test().get("/shutdown-timeout")).status).toBe(202);
 
@@ -284,16 +208,23 @@ describe("Empilha lifecycle", () => {
 
     Controller("/shutdown-resource")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false, shutdownTimeout: 5 })
-      .provide(Resource, {
-        useClass: Resource,
-        onDispose: () => {
-          disposed = true;
-        },
-      })
-      .validate([Jobs])
-      .initialize([Jobs]);
+    const app = await createApplication(
+      testModule([Jobs], {
+        providers: [
+          {
+            provide: Resource,
+            useClass: Resource,
+            onDispose: () => {
+              disposed = true;
+            },
+          },
+        ],
+      }),
+      {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false, shutdownTimeout: 5 }),
+      },
+    );
 
     expect((await app.test().get("/shutdown-resource")).status).toBe(202);
 
@@ -306,21 +237,26 @@ describe("Empilha lifecycle", () => {
     expect(disposed).toBe(true);
   });
 
-  test("valida configurações de timeout", () => {
-    const app = new Empilha();
-
-    expect(() => app.configureHttp({ handlerTimeout: 0 })).toThrow(RangeError);
-    expect(() => app.configureHttp({ bodyTimeout: -1 })).toThrow(RangeError);
-    expect(() => app.configureHttp({ shutdownTimeout: 1.5 })).toThrow(
-      RangeError,
-    );
-    expect(
-      app.configureHttp({
-        handlerTimeout: null,
-        bodyTimeout: null,
-        shutdownTimeout: null,
-      }),
-    ).toBe(app);
+  test("valida configurações de timeout", async () => {
+    for (const http of [
+      { handlerTimeout: 0 },
+      { bodyTimeout: -1 },
+      { shutdownTimeout: 1.5 },
+    ]) {
+      await expect(
+        createApplication(testModule([]), { runtime: { http } }),
+      ).rejects.toThrow(RangeError);
+    }
+    const app = await createApplication(testModule([]), {
+      runtime: {
+        http: {
+          handlerTimeout: null,
+          bodyTimeout: null,
+          shutdownTimeout: null,
+        },
+      },
+    });
+    expect(app.fetch).toBeTypeOf("function");
   });
 
   test("limita requisições simultâneas", async () => {
@@ -341,10 +277,10 @@ describe("Empilha lifecycle", () => {
 
     Controller("/request-limit")(Limited);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false, maxConcurrentRequests: 1 })
-      .validate([Limited])
-      .initialize([Limited]);
+    const app = await createApplication(testModule([Limited]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false, maxConcurrentRequests: 1 }),
+    });
 
     const first = app.test().get("/request-limit");
     await Promise.resolve();
@@ -382,21 +318,18 @@ describe("Empilha lifecycle", () => {
 
     Controller("/native-limit")(NativeLimited);
 
-    const app = new Empilha()
-      .configureHttp({
-        cors: false,
-        handlerTimeout: null,
-        maxConcurrentRequests: 1,
-      })
-      .validate([NativeLimited])
-      .initialize([NativeLimited]);
+    const app = await createApplication(testModule([NativeLimited]), {
+      configure: (runtime) =>
+        runtime.configureHttp({
+          cors: false,
+          handlerTimeout: null,
+          maxConcurrentRequests: 1,
+        }),
+    });
 
     try {
       await app.listen(0);
-      const internals = app as unknown as {
-        http: { port: number | null };
-      };
-      const url = `http://localhost:${internals.http.port}/native-limit`;
+      const url = new URL("/native-limit", app.url!);
 
       const first = fetch(url);
       await handlerStarted;
@@ -413,13 +346,17 @@ describe("Empilha lifecycle", () => {
 
   test("encerra recursos externos uma vez e em ordem inversa", async () => {
     const closed: string[] = [];
-    const app = new Empilha()
-      .onClose(() => {
-        closed.push("pool");
-      })
-      .onClose(() => {
-        closed.push("cache");
-      });
+    const app = await createApplication(testModule([]), {
+      configure(runtime) {
+        runtime
+          .onClose(() => {
+            closed.push("pool");
+          })
+          .onClose(() => {
+            closed.push("cache");
+          });
+      },
+    });
 
     await app.close();
     await app.close();
@@ -432,9 +369,10 @@ describe("Empilha lifecycle", () => {
     const pending = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    const app = new Empilha()
-      .configureHttp({ disposalTimeout: 5 })
-      .onClose(() => pending);
+    const app = await createApplication(testModule([]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ disposalTimeout: 5 }).onClose(() => pending),
+    });
 
     await expect(app.close()).rejects.toThrow("Timeout ao descartar");
 

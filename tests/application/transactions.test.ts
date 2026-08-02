@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   Controller,
-  Empilha,
+  createTestApplication,
   Get,
   Sql,
   Transaction,
   requestContext,
 } from "../../src";
+import { testModule, testPostgresPlugin } from "../helpers/test-utils";
 
 describe("Empilha transactions", () => {
   function runner(fail = false) {
@@ -57,12 +58,11 @@ describe("Empilha transactions", () => {
 
     const mock = runner();
 
-    const app = new Empilha()
-      .registerQuery("read", "SELECT")
-      .postgres(mock)
-      .configureHttp({ cors: false });
-
-    app.validate([Read]).initialize([Read]);
+    const app = await createTestApplication(testModule([Read]), {
+      postgres: mock,
+      configure: (runtime) =>
+        runtime.registerQuery("read", "SELECT").configureHttp({ cors: false }),
+    }).compile();
 
     await app.test().get("/tx-read");
 
@@ -85,18 +85,23 @@ describe("Empilha transactions", () => {
 
     Controller("/tx-hanging")(Hanging);
 
-    const app = new Empilha()
-      .registerQuery("hanging", "SELECT")
-      .postgres(
-        {
-          query: async () => ({ rows: [] }),
-          connect: () => new Promise<never>(() => {}),
-        },
-        { timeout: 5, healthCheck: false },
-      )
-      .configureHttp({ cors: false });
-
-    app.validate([Hanging]).initialize([Hanging]);
+    const database = {
+      query: async () => ({ rows: [] }),
+      connect: () => new Promise<never>(() => {}),
+    };
+    const app = await createTestApplication(
+      testModule([Hanging], {
+        plugins: [
+          testPostgresPlugin(database, { timeout: 5, healthCheck: false }),
+        ],
+      }),
+      {
+        configure: (runtime) =>
+          runtime
+            .registerQuery("hanging", "SELECT")
+            .configureHttp({ cors: false }),
+      },
+    ).compile();
 
     expect((await app.test().get("/tx-hanging")).status).toBe(504);
   });
@@ -113,12 +118,11 @@ describe("Empilha transactions", () => {
 
     const mock = runner();
 
-    const app = new Empilha()
-      .registerQuery("write", "UPDATE")
-      .postgres(mock)
-      .configureHttp({ cors: false });
-
-    app.validate([Write]).initialize([Write]);
+    const app = await createTestApplication(testModule([Write]), {
+      postgres: mock,
+      configure: (runtime) =>
+        runtime.registerQuery("write", "UPDATE").configureHttp({ cors: false }),
+    }).compile();
 
     await app.test().get("/tx-write");
 
@@ -135,12 +139,11 @@ describe("Empilha transactions", () => {
 
     const failed = runner(true);
 
-    const failingApp = new Empilha()
-      .registerQuery("fail", "SELECT")
-      .postgres(failed)
-      .configureHttp({ cors: false });
-
-    failingApp.validate([Fail]).initialize([Fail]);
+    const failingApp = await createTestApplication(testModule([Fail]), {
+      postgres: failed,
+      configure: (runtime) =>
+        runtime.registerQuery("fail", "SELECT").configureHttp({ cors: false }),
+    }).compile();
 
     const response = await failingApp.test().get("/tx-fail");
 
@@ -162,12 +165,13 @@ describe("Empilha transactions", () => {
     Controller("/tx-controller")(Write);
 
     const mock = runner();
-    const app = new Empilha()
-      .registerQuery("write", "FIRST QUERY")
-      .postgres(mock)
-      .configureHttp({ cors: false });
-
-    app.validate([Write]).initialize([Write]);
+    const app = await createTestApplication(testModule([Write]), {
+      postgres: mock,
+      configure: (runtime) =>
+        runtime
+          .registerQuery("write", "FIRST QUERY")
+          .configureHttp({ cors: false }),
+    }).compile();
     await app.test().get("/tx-controller");
 
     expect(mock.calls).toEqual([
@@ -192,19 +196,20 @@ describe("Empilha transactions", () => {
     Controller("/tx-controller-fail")(Failing);
 
     const mock = runner();
-    const app = new Empilha()
-      .registerQuery("write", "FIRST QUERY")
-      .postgres(mock)
-      .configureHttp({ cors: false });
-
-    app.validate([Failing]).initialize([Failing]);
+    const app = await createTestApplication(testModule([Failing]), {
+      postgres: mock,
+      configure: (runtime) =>
+        runtime
+          .registerQuery("write", "FIRST QUERY")
+          .configureHttp({ cors: false }),
+    }).compile();
     const response = await app.test().get("/tx-controller-fail");
 
     expect(response.status).toBe(500);
     expect(mock.calls).toEqual(["BEGIN", "FIRST QUERY", "ROLLBACK", "release"]);
   });
 
-  test("rejeita runner sem suporte a transação no registro", () => {
+  test("rejeita runner sem suporte a transação no registro", async () => {
     class Plain {
       @Get("/")
       @Transaction("read")
@@ -214,18 +219,15 @@ describe("Empilha transactions", () => {
 
     Controller("/plain-tx")(Plain);
 
-    const app = new Empilha()
-      .registerQuery("plain", "SELECT")
-      .postgres({
-        query: async () => ({
-          rows: [],
-        }),
-      })
-      .configureHttp({ cors: false });
-
-    expect(() => app.validate([Plain]).initialize([Plain])).toThrow(
-      "não suporta transações",
-    );
+    await expect(
+      createTestApplication(testModule([Plain]), {
+        postgres: { query: async () => ({ rows: [] }) },
+        configure: (runtime) =>
+          runtime
+            .registerQuery("plain", "SELECT")
+            .configureHttp({ cors: false }),
+      }).compile(),
+    ).rejects.toThrow("não suporta transações");
   });
 
   test("aborta query no timeout, faz rollback e libera o client", async () => {
@@ -276,20 +278,21 @@ describe("Empilha transactions", () => {
       },
     };
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .registerQuery("timeout", "SELECT SLOW")
-      .postgres(
-        {
-          query: async () => ({
-            rows: [],
-          }),
-          connect: async () => client,
-        },
-        { timeout: 5 },
-      )
-      .validate([Slow])
-      .initialize([Slow]);
+    const database = {
+      query: async () => ({ rows: [] }),
+      connect: async () => client,
+    };
+    const app = await createTestApplication(
+      testModule([Slow], {
+        plugins: [testPostgresPlugin(database, { timeout: 5 })],
+      }),
+      {
+        configure: (runtime) =>
+          runtime
+            .configureHttp({ cors: false })
+            .registerQuery("timeout", "SELECT SLOW"),
+      },
+    ).compile();
 
     const response = await app.test().get("/tx-timeout");
 

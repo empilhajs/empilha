@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { t, type ControllerConstructor, type Infer } from "../../src";
+import * as publicApi from "../../src";
+import { t, type Constructor, type Infer } from "../../src";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -26,10 +27,13 @@ class UsersController {
   readonly marker = "users";
 }
 
-const typedController: ControllerConstructor<UsersController> = UsersController;
+const typedController: Constructor<UsersController> = UsersController;
 
 describe("type inference", () => {
   test("mantém as formas inferidas disponíveis em runtime", () => {
-    expect(new typedController().marker).toBe("users");
+    expect(typedController).toBe(UsersController);
+    expect(new UsersController().marker).toBe("users");
+    expect("Empilha" in publicApi).toBe(false);
+    expect("linkApplicationGraph" in publicApi).toBe(false);
   });
 });

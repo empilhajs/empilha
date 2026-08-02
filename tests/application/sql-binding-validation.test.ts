@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectSqlSources } from "../../src/application/sql-binding-validation";
+import { collectSqlSources } from "../../src/application/bootstrap/sql-binding-validation";
 
 describe("SQL binding source detection", () => {
   test("ignora strings e comentários SQL", () => {

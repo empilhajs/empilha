@@ -4,7 +4,7 @@ import {
   compileResponseFactory,
   statusCode,
 } from "../../src/compiler/response-compiler";
-import type { RouteMetadata } from "../../src/types";
+import type { RouteMetadata } from "../../src/core/types";
 
 const route = (extra: Partial<RouteMetadata> = {}): RouteMetadata => ({
   propertyKey: "run",

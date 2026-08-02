@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AfterResponse, Controller, Empilha, Get } from "../../src";
+import { AfterResponse, Controller, createApplication, Get } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("Empilha background handlers", () => {
   test("responde imediatamente sem sleep real", async () => {
@@ -28,8 +29,13 @@ describe("Empilha background handlers", () => {
 
     Controller("/jobs")(Jobs);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Jobs]).initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
+    const events: unknown[] = [];
+    app.events.on("background.completed", (event) => {
+      events.push(event);
+    });
 
     const response = await app.test().get("/jobs");
 
@@ -37,8 +43,10 @@ describe("Empilha background handlers", () => {
 
     resolve?.();
     await executedSignal;
+    await new Promise((tick) => setTimeout(tick, 0));
 
     expect(executed).toBe(true);
+    expect(events[0]).toMatchObject({ status: "completed" });
   });
 
   test("encaminha erro de background para callback", async () => {
@@ -64,14 +72,17 @@ describe("Empilha background handlers", () => {
 
     Controller("/jobs-error")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .onBackgroundError((value) => {
-        error = value;
-        markError?.();
-      });
-
-    app.validate([Jobs]).initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).onBackgroundError((value) => {
+          error = value;
+          markError?.();
+        }),
+    });
+    const events: unknown[] = [];
+    app.events.on("background.completed", (event) => {
+      events.push(event);
+    });
 
     const response = await app.test().get("/jobs-error");
 
@@ -79,8 +90,15 @@ describe("Empilha background handlers", () => {
 
     reject?.(new Error("background"));
     await errorSignal;
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(error).toBeInstanceOf(Error);
+    expect(events[0]).toMatchObject({
+      status: "failed",
+      error: { name: "Error" },
+    });
+    expect(Object.isFrozen(events[0])).toBe(true);
+    await app.close();
   });
 
   test("aguarda observer assíncrono que também falha", async () => {
@@ -105,14 +123,13 @@ describe("Empilha background handlers", () => {
 
     Controller("/async-observer")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .onBackgroundError(async () => {
-        observed();
-        throw new Error("observer failed");
-      })
-      .validate([Jobs])
-      .initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).onBackgroundError(async () => {
+          observed();
+          throw new Error("observer failed");
+        }),
+    });
 
     expect((await app.test().get("/async-observer")).status).toBe(202);
 
@@ -137,10 +154,9 @@ describe("Empilha background handlers", () => {
 
     Controller("/tracked-background")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Jobs])
-      .initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/tracked-background");
 
@@ -187,14 +203,13 @@ describe("Empilha background handlers", () => {
 
     Controller("/limited-background")(Jobs);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .backgroundJobs({
-        concurrency: 1,
-        queueLimit: 1,
-      })
-      .validate([Jobs])
-      .initialize([Jobs]);
+    const app = await createApplication(testModule([Jobs]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).backgroundJobs({
+          concurrency: 1,
+          queueLimit: 1,
+        }),
+    });
 
     const first = await app.test().get("/limited-background");
     await Promise.resolve();

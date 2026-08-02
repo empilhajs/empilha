@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Container, HttpAdapter, requestContext } from "../../src";
 import { JsonBodyReader } from "../../src/http";
+import { ApplicationEvents } from "../../src/runtime";
 import { request } from "../helpers/test-utils";
 
 describe("HttpAdapter", () => {
@@ -68,6 +69,28 @@ describe("HttpAdapter", () => {
       ).toBeNull();
     } finally {
       await native.close();
+    }
+  });
+
+  test("preserva params de rota nativa ao adicionar X-Request-Id", async () => {
+    const adapter = new HttpAdapter();
+    adapter.disableCors();
+    adapter.setHandlerTimeout(null);
+    adapter.setRequestIdGenerator(() => "native-param-request-id");
+    adapter.getQueryText(
+      "/native-params/:id",
+      (params, query) => `${params.id} ${query.name}`,
+    );
+
+    await adapter.listen(0);
+    try {
+      const response = await fetch(`${adapter.url}native-params/42?name=bun`);
+      expect(await response.text()).toBe("42 bun");
+      expect(response.headers.get("x-request-id")).toBe(
+        "native-param-request-id",
+      );
+    } finally {
+      await adapter.close();
     }
   });
 
@@ -508,6 +531,113 @@ describe("HttpAdapter", () => {
     ).toBeNull();
   });
 
+  test("mantém headers CORS no servidor e no app.fetch para rota estática", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    adapter.enableCors("https://client.example");
+    adapter.get("/cors-native", () => ({ status: 200, body: "ok" }));
+
+    const direct = await adapter.handleRequest(
+      request("/cors-native", {
+        headers: { Origin: "https://client.example" },
+      }),
+    );
+    await adapter.listen(0);
+    try {
+      const server = await fetch(`${adapter.url}cors-native`, {
+        headers: { Origin: "https://client.example" },
+      });
+      expect(direct.status).toBe(server.status);
+      expect(direct.headers.get("access-control-allow-origin")).toBe(
+        "https://client.example",
+      );
+      expect(server.headers.get("access-control-allow-origin")).toBe(
+        "https://client.example",
+      );
+      expect(await server.text()).toBe(await direct.text());
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  test("mantém paridade de headers, erros, validação, request ID e eventos", async () => {
+    const adapter = new HttpAdapter();
+    const events = new ApplicationEvents();
+    const observed: Array<{
+      requestId: string;
+      status: number;
+      route: string;
+    }> = [];
+    events.on("request.completed", (event) => {
+      observed.push({
+        requestId: event.requestId,
+        status: event.status,
+        route: event.route,
+      });
+    });
+    adapter.setEvents(events);
+    adapter.setHandlerTimeout(null);
+    adapter.setRequestIdGenerator(() => "parity-request-id");
+    adapter.get("/headers", () => ({
+      status: 201,
+      body: "created",
+      headers: { "X-Parity": "yes" },
+    }));
+    adapter.get("/failure", () => {
+      throw new Error("native failure");
+    });
+    const validation = ((input: { body: unknown }) => ({
+      status: 200,
+      body: JSON.stringify(input.body),
+    })) as import("../../src/http").ServerHandler;
+    Object.assign(validation, { needsBody: true });
+    adapter.post("/validation", validation);
+
+    const snapshots = async (pathname: string, init?: RequestInit) => {
+      const direct = await adapter.handleRequest(
+        new Request(`http://test${pathname}`, init),
+      );
+      const directSnapshot = {
+        status: direct.status,
+        parity: direct.headers.get("x-parity"),
+        requestId: direct.headers.get("x-request-id"),
+        contentType: direct.headers.get("content-type"),
+        body: await direct.text(),
+      };
+      await adapter.listen(0);
+      try {
+        const server = await fetch(new URL(pathname, adapter.url!), init);
+        const serverSnapshot = {
+          status: server.status,
+          parity: server.headers.get("x-parity"),
+          requestId: server.headers.get("x-request-id"),
+          contentType: server.headers.get("content-type"),
+          body: await server.text(),
+        };
+        expect(serverSnapshot).toEqual(directSnapshot);
+      } finally {
+        await adapter.close();
+      }
+    };
+
+    await snapshots("/headers");
+    await snapshots("/failure");
+    await snapshots("/validation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{invalid",
+    });
+
+    expect(observed).toEqual([
+      { requestId: "parity-request-id", status: 201, route: "/headers" },
+      { requestId: "parity-request-id", status: 201, route: "/headers" },
+      { requestId: "parity-request-id", status: 500, route: "/failure" },
+      { requestId: "parity-request-id", status: 500, route: "/failure" },
+      { requestId: "parity-request-id", status: 400, route: "/validation" },
+      { requestId: "parity-request-id", status: 400, route: "/validation" },
+    ]);
+  });
+
   test("preserva CORS em erros e envia Server", async () => {
     const adapter = new HttpAdapter();
 
@@ -622,6 +752,31 @@ describe("HttpAdapter", () => {
     );
 
     expect(response.status).toBe(413);
+  });
+
+  test("aplica o limite padrão ao body real com Content-Length falsamente pequeno", async () => {
+    const reader = new JsonBodyReader();
+    const value = "x".repeat(1_048_576);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({ value })));
+        controller.close();
+      },
+    });
+
+    await expect(
+      reader.read(
+        new Request("http://test/body", {
+          method: "POST",
+          headers: {
+            "content-length": "1",
+            "content-type": "application/json",
+          },
+          body: stream,
+          duplex: "half",
+        } as RequestInit),
+      ),
+    ).rejects.toMatchObject({ status: 413 });
   });
 
   test("cancela stream sem Content-Length ao exceder o limite", async () => {

@@ -4,21 +4,81 @@ import {
   Context,
   Controller,
   Delete,
-  Empilha,
+  createApplication,
   Get,
   Header,
+  HeaderParams,
   Param,
   Produces,
   Post,
   Query,
   Request as RequestDecorator,
   Returns,
+  Responses,
   Status,
   t,
 } from "../../src";
+import { testModule } from "../helpers/test-utils";
 import { request as createRequest } from "../helpers/test-utils";
 
 describe("Empilha routing and decorators", () => {
+  test("valida o conjunto de headers com HeaderParams", async () => {
+    const headers = t.Object(
+      { "x-api-key": t.String({ minLength: 1 }) },
+      { additionalProperties: true },
+    );
+
+    @Controller("/header-schema")
+    class HeaderSchemaController {
+      @Get("/")
+      @HeaderParams(headers)
+      get(@Header("x-api-key") key: string) {
+        return { key };
+      }
+    }
+
+    const app = await createApplication(testModule([HeaderSchemaController]));
+    expect((await app.test().get("/header-schema")).status).toBe(400);
+    const response = await app.test().get("/header-schema", {
+      headers: { "x-api-key": "secret" },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ key: "secret" });
+  });
+
+  test("valida e serializa respostas declaradas por status", async () => {
+    const schema = t.Object({ id: t.Number() });
+
+    @Controller("/responses")
+    class ResponsesController {
+      @Post("/")
+      @Status(201)
+      @Responses({ 201: schema })
+      create() {
+        return { id: 1, ignored: true };
+      }
+    }
+
+    const app = await createApplication(testModule([ResponsesController]));
+    const response = await app.test().post("/responses");
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ id: 1 });
+  });
+
+  test("rejeita @Param sem segmento correspondente no path", async () => {
+    @Controller("/users")
+    class Users {
+      @Get("/")
+      find(@Param("id") id: string) {
+        return id;
+      }
+    }
+
+    await expect(createApplication(testModule([Users]))).rejects.toThrow(
+      '@Param("id")',
+    );
+  });
+
   test("registra controllers e resolve rota sem parâmetros", async () => {
     class Hello {
       @Get("/")
@@ -29,8 +89,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/hello")(Hello);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Hello]).initialize([Hello]);
+    const app = await createApplication(testModule([Hello]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/hello");
 
@@ -49,8 +110,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/async")(AsyncRoute);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([AsyncRoute]).initialize([AsyncRoute]);
+    const app = await createApplication(testModule([AsyncRoute]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect(await (await app.test().get("/async")).json()).toEqual([1, 2, 3]);
   });
@@ -92,8 +154,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/echo")(Echo);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Echo]).initialize([Echo]);
+    const app = await createApplication(testModule([Echo]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const http = (
       app as unknown as {
@@ -164,8 +227,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/strict")(Strict);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Loose, Strict]).initialize([Loose, Strict]);
+    const app = await createApplication(testModule([Loose, Strict]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect(
       (
@@ -181,6 +245,9 @@ describe("Empilha routing and decorators", () => {
 
     expect(invalidResponse.status).toBe(400);
     expect(await invalidResponse.json()).toEqual({
+      type: "about:blank",
+      title: "Validation failed",
+      status: 400,
       errors: [
         {
           path: "/name",
@@ -204,8 +271,9 @@ describe("Empilha routing and decorators", () => {
     Context()(ContextRoute.prototype, "get", 0);
     Controller("/context")(ContextRoute);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([ContextRoute]).initialize([ContextRoute]);
+    const app = await createApplication(testModule([ContextRoute]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const [first, second] = await Promise.all([
       app.test().get("/context"),
@@ -242,8 +310,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/features")(Features);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Features]).initialize([Features]);
+    const app = await createApplication(testModule([Features]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const jsonResponse = await app.test().get("/features/json");
 
@@ -255,7 +324,7 @@ describe("Empilha routing and decorators", () => {
     expect(await textResponse.text()).toBe("hello");
   });
 
-  test("aplica validateResponseSchemas em tempo de execução após initialize", async () => {
+  test("define validateResponseSchemas somente durante a criação", async () => {
     const schema = t.Object({ ok: t.Boolean() });
 
     class ToggleValidation {
@@ -268,17 +337,22 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/toggle-validation")(ToggleValidation);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validateResponseSchemas(true)
-      .validate([ToggleValidation])
-      .initialize([ToggleValidation]);
+    const app = await createApplication(testModule([ToggleValidation]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).validateResponseSchemas(true),
+    });
 
     expect((await app.test().get("/toggle-validation")).status).toBe(500);
 
-    app.validateResponseSchemas(false);
+    expect(() => app.validateResponseSchemas(false)).toThrow("fase configure");
 
-    expect((await app.test().get("/toggle-validation")).status).toBe(200);
+    const permissive = await createApplication(testModule([ToggleValidation]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).validateResponseSchemas(false),
+    });
+    expect((await permissive.test().get("/toggle-validation")).status).toBe(
+      200,
+    );
   });
 
   test("usa DELETE 204 sem corpo e preserva Produces e Server", async () => {
@@ -297,12 +371,13 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/items")(Items);
 
-    const app = new Empilha().configureHttp({
-      cors: false,
-      serverHeader: "Test",
+    const app = await createApplication(testModule([Items]), {
+      configure: (runtime) =>
+        runtime.configureHttp({
+          cors: false,
+          serverHeader: "Test",
+        }),
     });
-
-    app.validate([Items]).initialize([Items]);
 
     const deleted = await app.test().delete("/items");
 
@@ -331,8 +406,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/dynamic")(Dynamic);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Dynamic]).initialize([Dynamic]);
+    const app = await createApplication(testModule([Dynamic]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect(executions).toBe(0);
 
@@ -356,9 +432,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/invalid")(Invalid);
 
-    expect(() => {
-      new Empilha().validate([Invalid]).initialize([Invalid]);
-    }).toThrow("parâmetro 0");
+    await expect(createApplication(testModule([Invalid]))).rejects.toThrow(
+      "parâmetro 0",
+    );
   });
 
   test("isola o snapshot de metadata entre aplicações", async () => {
@@ -375,10 +451,9 @@ describe("Empilha routing and decorators", () => {
 
     Controller("/snapshot")(Routes);
 
-    const first = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Routes])
-      .initialize([Routes]);
+    const first = await createApplication(testModule([Routes]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     Get("/two")(
       Routes.prototype,
@@ -386,10 +461,9 @@ describe("Empilha routing and decorators", () => {
       Object.getOwnPropertyDescriptor(Routes.prototype, "two")!,
     );
 
-    const second = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Routes])
-      .initialize([Routes]);
+    const second = await createApplication(testModule([Routes]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect((await first.test().get("/snapshot/two")).status).toBe(404);
     expect((await second.test().get("/snapshot/two")).status).toBe(200);

@@ -135,16 +135,40 @@ describe("RouteTree", () => {
     expect(router.find("GET", "/orders/abc")).toBeNull();
   });
 
-  test("distingue expressões regulares diferentes na mesma posição", () => {
+  test("rejeita expressões regulares concorrentes na mesma posição", () => {
     const router = new RouteTree();
     const numeric = () => "numeric";
-    const alphabetic = () => "alphabetic";
 
     router.insert("GET", "/value/:id<[0-9]+>", numeric);
-    router.insert("GET", "/value/:id<[a-z]+>", alphabetic);
+    expect(() =>
+      router.insert("GET", "/value/:id<[a-z]+>", () => "alphabetic"),
+    ).toThrow("Rotas ambíguas");
+  });
 
-    expect(router.find("GET", "/value/42")?.handler).toBe(numeric);
-    expect(router.find("GET", "/value/abc")?.handler).toBe(alphabetic);
+  test("rejeita shadowing entre rota genérica e rota restrita em ambas as ordens", () => {
+    for (const routes of [
+      ["/files/:id", "/files/:id<[0-9]+>"],
+      ["/files/:id<[0-9]+>", "/files/:id"],
+    ]) {
+      const router = new RouteTree();
+      router.insert("GET", routes[0], () => "public");
+      expect(() => router.insert("GET", routes[1], () => "protected")).toThrow(
+        "Rotas ambíguas",
+      );
+    }
+  });
+
+  test("rejeita padrões regex amplos e estreitos em ambas as ordens", () => {
+    for (const routes of [
+      ["/value/:id<.+>", "/value/:id<[0-9]+>"],
+      ["/value/:id<[0-9]+>", "/value/:id<.+>"],
+    ]) {
+      const router = new RouteTree();
+      router.insert("GET", routes[0], () => "public");
+      expect(() => router.insert("GET", routes[1], () => "protected")).toThrow(
+        "Rotas ambíguas",
+      );
+    }
   });
 
   test("lista métodos permitidos para um caminho", () => {

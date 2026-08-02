@@ -3,13 +3,14 @@ import {
   Body,
   Controller,
   Delete,
-  Empilha,
+  createApplication,
   Get,
   Header,
   Param,
   Status,
   t,
 } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("test client", () => {
   test("funciona sem servidor e preserva false, 0, null e string vazia", async () => {
@@ -37,9 +38,9 @@ describe("test client", () => {
 
     Controller("/values")(Values);
 
-    const app = new Empilha().configureHttp({ cors: false });
-
-    app.validate([Values]).initialize([Values]);
+    const app = await createApplication(testModule([Values]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const falseResponse = await app.test().get("/values/false");
     const zeroResponse = await app.test().get("/values/zero");
@@ -69,9 +70,9 @@ describe("test client", () => {
 
     Controller("/api")(Hello);
 
-    const app = new Empilha().configureHttp({ cors: false });
-
-    app.validate([Hello]).initialize([Hello]);
+    const app = await createApplication(testModule([Hello]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/api/hello/mundo");
 
@@ -91,8 +92,9 @@ describe("test client", () => {
     Header("X-Token")(Protected.prototype, "value", 0);
     Controller("/protected")(Protected);
 
-    const app = new Empilha().configureHttp({ cors: false });
-    app.validate([Protected]).initialize([Protected]);
+    const app = await createApplication(testModule([Protected]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/protected", {
       headers: {
@@ -112,11 +114,10 @@ describe("test client", () => {
 
     Controller("/resources")(Resources);
 
-    const client = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Resources])
-      .initialize([Resources])
-      .test();
+    const app = await createApplication(testModule([Resources]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
+    const client = app.test();
 
     expect((await client.delete("/resources")).status).toBe(204);
   });
@@ -131,11 +132,10 @@ describe("test client", () => {
     }
 
     Controller("/delete-body")(Resources);
-    const client = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Resources])
-      .initialize([Resources])
-      .test();
+    const app = await createApplication(testModule([Resources]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
+    const client = app.test();
     const response = await client.delete("/delete-body", { headers: "body" });
 
     expect(await response.json()).toEqual({ headers: "body" });

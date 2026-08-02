@@ -3,7 +3,7 @@ import {
   Catch,
   Controller,
   Delete,
-  Empilha,
+  createApplication,
   Get,
   HttpError,
   Param,
@@ -13,6 +13,7 @@ import {
   Returns,
   t,
 } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("Empilha request pipeline", () => {
   async function responseSnapshot(response: Response) {
@@ -35,9 +36,9 @@ describe("Empilha request pipeline", () => {
 
     Controller("/health")(Health);
 
-    const app = new Empilha().configureHttp({ cors: false });
-
-    app.validate([Health]).initialize([Health]);
+    const app = await createApplication(testModule([Health]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/health");
 
@@ -58,9 +59,9 @@ describe("Empilha request pipeline", () => {
 
     Controller("/users")(Users);
 
-    const app = new Empilha().configureHttp({ cors: false });
-
-    app.validate([Users]).initialize([Users]);
+    const app = await createApplication(testModule([Users]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const response = await app.test().get("/users/42");
 
@@ -81,10 +82,9 @@ describe("Empilha request pipeline", () => {
     Header("x-token")(Search.prototype, "find", 1);
     Controller("/search")(Search);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Search])
-      .initialize([Search]);
+    const app = await createApplication(testModule([Search]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
     const response = await app.test().get("/search?q=books", {
       headers: { "x-token": "secret" },
     });
@@ -153,7 +153,7 @@ describe("Empilha request pipeline", () => {
       }
 
       @Catch(RangeError)
-      catchRange() {
+      catchRange(_error: RangeError) {
         return {
           status: 409,
           body: "caught",
@@ -163,16 +163,16 @@ describe("Empilha request pipeline", () => {
 
     Controller("/parity")(Routes);
 
-    const withoutMiddleware = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Routes])
-      .initialize([Routes]);
+    const withoutMiddleware = await createApplication(testModule([Routes]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
-    const normal = new Empilha()
-      .configureHttp({ cors: false })
-      .useMiddleware(async (_request, next) => next())
-      .validate([Routes])
-      .initialize([Routes]);
+    const normal = await createApplication(testModule([Routes]), {
+      configure: (runtime) =>
+        runtime
+          .configureHttp({ cors: false })
+          .useMiddleware(async (_request, next) => next()),
+    });
 
     for (const path of [
       "/sync",
@@ -254,16 +254,16 @@ describe("Empilha request pipeline", () => {
 
     Controller("/routing-parity")(Routes);
 
-    const withoutMiddleware = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Routes])
-      .initialize([Routes]);
+    const withoutMiddleware = await createApplication(testModule([Routes]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
-    const normal = new Empilha()
-      .configureHttp({ cors: false })
-      .useMiddleware(async (_request, next) => next())
-      .validate([Routes])
-      .initialize([Routes]);
+    const normal = await createApplication(testModule([Routes]), {
+      configure: (runtime) =>
+        runtime
+          .configureHttp({ cors: false })
+          .useMiddleware(async (_request, next) => next()),
+    });
 
     for (const path of [
       "/number/2",

@@ -1,6 +1,13 @@
 import { expect } from "bun:test";
-import type { ControllerConstructor } from "../../src/empilha";
-import { Empilha } from "../../src";
+import {
+  defineDeclarativePlugin,
+  defineModule,
+  type AuthTokenHandler,
+  type DeclarativePostgresOptions,
+  type ModuleController,
+  type ModuleDefinition,
+  type PostgresQueryRunner,
+} from "../../src";
 
 export function request(url: string, init?: RequestInit): Request {
   return new Request(`http://test${url}`, init);
@@ -18,12 +25,49 @@ export function expectHeader(
   expect(response.headers.get(name)).toBe(value);
 }
 
-export function createTestApp(
-  ...controllers: ControllerConstructor[]
-): Empilha {
-  const app = new Empilha().configureHttp({ cors: false });
-  app.validate(controllers).initialize(controllers);
-  return app;
+let testModuleSequence = 0;
+let testPluginSequence = 0;
+
+export function testModule(
+  controllers: readonly ModuleController[],
+  options: Omit<
+    Parameters<typeof defineModule>[0],
+    "name" | "controllers"
+  > = {},
+): ModuleDefinition {
+  testModuleSequence++;
+  return defineModule({
+    name: `test-module-${testModuleSequence}`,
+    ...options,
+    controllers,
+  });
+}
+
+export function testAuthPlugin(handler: AuthTokenHandler) {
+  testPluginSequence++;
+  return defineDeclarativePlugin({
+    name: `test-auth-${testPluginSequence}`,
+    version: "1.0.0",
+    provides: ["auth/handler"],
+    register(context) {
+      context.auth(handler);
+    },
+  });
+}
+
+export function testPostgresPlugin(
+  runner: PostgresQueryRunner,
+  options: DeclarativePostgresOptions = { healthCheck: false },
+) {
+  testPluginSequence++;
+  return defineDeclarativePlugin({
+    name: `test-postgres-${testPluginSequence}`,
+    version: "1.0.0",
+    provides: ["postgres/query-runner"],
+    register(context) {
+      context.postgres(runner, options);
+    },
+  });
 }
 
 export function decorateMethod(

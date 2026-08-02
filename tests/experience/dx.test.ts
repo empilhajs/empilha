@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import {
-  Controller,
-  createTestApp,
-  definePlugin,
-  Empilha,
-  Get,
-} from "../../src";
+import { Controller, createApplication, Get } from "../../src";
 import { defineRoles, Roles } from "../../src/decorators";
+import { testModule } from "../helpers/test-utils";
 
 describe("atalhos de experiência de desenvolvimento", () => {
   test("cria app de teste já registrado e permite configuração", async () => {
@@ -17,37 +12,60 @@ describe("atalhos de experiência de desenvolvimento", () => {
       }
     }
 
-    const app = createTestApp([Hello], (configured) =>
-      configured.configureHttp({ cors: false }),
-    );
+    const app = await createApplication(testModule([Hello]), {
+      configure: (configured) => configured.configureHttp({ cors: false }),
+    });
 
     expect((await app.test().get("/")).status).toBe(200);
   });
 
-  test("agrupa as configurações HTTP", () => {
-    const app = new Empilha().configureHttp({
-      cors: false,
-      handlerTimeout: 1_000,
-      shutdownTimeout: 1_000,
-      maxConcurrentRequests: 10,
+  test("agrupa as configurações HTTP", async () => {
+    const app = await createApplication(testModule([]), {
+      configure: (configured) =>
+        configured.configureHttp({
+          cors: false,
+          handlerTimeout: 1_000,
+          shutdownTimeout: 1_000,
+          maxConcurrentRequests: 10,
+        }),
     });
 
-    expect(app).toBeInstanceOf(Empilha);
+    expect(app.fetch).toBeTypeOf("function");
   });
 
   test("aplica configuração centralizada tipada", async () => {
-    const app = new Empilha()
-      .configure({
+    const app = await createApplication(testModule([]), {
+      runtime: {
         server: { port: 4000 },
         http: { cors: false },
         openapi: { title: "Configured API", version: "1.0.0" },
         validation: { responses: false },
-      })
-      .initialize([]);
+      },
+    });
 
     const docs = await app.test().get("/openapi.json");
     expect(docs.status).toBe(200);
     expect((await docs.json()).info.title).toBe("Configured API");
+  });
+
+  test("valida configuração parcial antes de aplicar mudanças", async () => {
+    await expect(
+      createApplication(testModule([]), {
+        runtime: { middleware: ["not-a-middleware"] as never },
+      }),
+    ).rejects.toThrow("middleware deve ser uma lista de funções");
+
+    await expect(
+      createApplication(testModule([]), {
+        runtime: { validation: { responses: "yes" as never } },
+      }),
+    ).rejects.toThrow("validation.responses deve ser booleano");
+
+    await expect(
+      createApplication(testModule([]), {
+        runtime: { server: { port: 70_000 } },
+      }),
+    ).rejects.toThrow("porta do servidor");
   });
 
   test("habilita logging de requests pela configuração centralizada", async () => {
@@ -70,9 +88,9 @@ describe("atalhos de experiência de desenvolvimento", () => {
         }
       }
 
-      const app = new Empilha()
-        .configure({ logging: { requests: true } })
-        .initialize([Logged]);
+      const app = await createApplication(testModule([Logged]), {
+        runtime: { logging: { requests: true } },
+      });
 
       expect((await app.test().get("/configured-logs")).status).toBe(200);
       expect(entries).toEqual([
@@ -83,23 +101,12 @@ describe("atalhos de experiência de desenvolvimento", () => {
     }
   });
 
-  test("separa registro de middleware e plugin", () => {
-    let installed = false;
-    const plugin = definePlugin(() => {
-      installed = true;
-    });
-
-    new Empilha().usePlugin(plugin);
-
-    expect(installed).toBe(true);
-  });
-
   test("cria decorators de roles", () => {
     const roles = defineRoles("admin", "user");
     expect(roles.require("admin")).toBeTypeOf("function");
   });
 
-  test("inclui endpoint no erro de bootstrap", () => {
+  test("inclui endpoint no erro de bootstrap", async () => {
     @Controller("/admin")
     class Admin {
       @Get("/")
@@ -107,8 +114,8 @@ describe("atalhos de experiência de desenvolvimento", () => {
       list() {}
     }
 
-    expect(() => new Empilha().initialize([Admin])).toThrow(
-      "Admin.list (GET /admin)",
+    await expect(createApplication(testModule([Admin]))).rejects.toThrow(
+      "Admin.list",
     );
   });
 });

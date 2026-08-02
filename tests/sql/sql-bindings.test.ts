@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileNamedSQL, compileSqlBinding } from "../../src/sql/sql-bindings";
+import { createFuzzer } from "../helpers/fuzz";
 
 describe("SQL bindings", () => {
   const request = {
@@ -50,6 +51,44 @@ describe("SQL bindings", () => {
     expect(getValue({ body: { description: null } })).toBeNull();
   });
 
+  test("mantém presença e valor para falsy em body, query e header", () => {
+    const cases = [
+      ["body", "value", { body: { value: false } }, false],
+      ["body", "value", { body: { value: 0 } }, 0],
+      ["body", "value", { body: { value: "" } }, ""],
+      ["body", "value", { body: { value: null } }, null],
+      ["query", "value", { query: { value: false } }, false],
+      ["query", "value", { query: { value: 0 } }, 0],
+      ["query", "value", { query: { value: "" } }, ""],
+      ["query", "value", { query: { value: null } }, null],
+      ["header", "x-tenant-id", { headers: { "x-tenant-id": "" } }, ""],
+    ] as const;
+
+    for (const [source, name, input, expected] of cases) {
+      expect(compileSqlBinding(`${source}.${name}`)(input)).toBe(expected);
+      expect(compileSqlBinding(`${source}.${name}?`)(input)).toBe(true);
+      expect(
+        compileSqlBinding(`${source}.${name}?`)({
+          [source]: {},
+        }),
+      ).toBe(false);
+    }
+  });
+
+  test("aceita header com hífen e preserva cast", () => {
+    const compiled = compileNamedSQL("SELECT :header.x-tenant-id?::text", {
+      includeTypes: true,
+    });
+    expect(compiled.sql).toBe("SELECT $1::text");
+    expect(compiled.bindings).toEqual(["header.x-tenant-id?"]);
+    expect(compiled.bindingTypes).toEqual({ "header.x-tenant-id?": "boolean" });
+    expect(
+      compileSqlBinding(compiled.bindings[0]!)({
+        headers: { "x-tenant-id": "tenant" },
+      }),
+    ).toBe(true);
+  });
+
   test("compila SQL e bindings sem depender da requisição", () => {
     const compiled = compileNamedSQL(
       "SELECT :body.user.name, :param.id::int, :query.missing, :auth.sub",
@@ -59,6 +98,20 @@ describe("SQL bindings", () => {
       sql: "SELECT $1, $2::int, $3, $4",
       bindings: ["body.user.name", "param.id", "query.missing", "auth.sub"],
       named: true,
+    });
+  });
+
+  test("infere tipos de bindings apenas quando solicitado", () => {
+    const compiled = compileNamedSQL(
+      "SELECT :query.page::int, :body.enabled::boolean, :body.name::text, :body.value?",
+      { includeTypes: true },
+    );
+
+    expect(compiled.bindingTypes).toEqual({
+      "query.page": "number",
+      "body.enabled": "boolean",
+      "body.name": "string",
+      "body.value?": "boolean",
     });
   });
 
@@ -143,6 +196,22 @@ describe("SQL bindings", () => {
       expect(compiled.bindings).toEqual(["param.id"]);
       expect(compiled.sql).toContain(fragment);
       expect(compiled.sql).toContain("$1");
+    }
+  });
+
+  test("mantém invariantes para bindings válidos gerados", () => {
+    const fuzzer = createFuzzer(0x42494e44);
+    const sources = ["body", "param", "query", "auth", "identity"] as const;
+    for (let index = 0; index < 2_000; index++) {
+      const source = sources[fuzzer.integer(sources.length)]!;
+      const name = `field${fuzzer.token(6).replaceAll("-", "_")}`;
+      const presence = fuzzer.integer(2) === 0 ? "?" : "";
+      const binding = `${source}.${name}${presence}`;
+      const compiled = compileNamedSQL(`SELECT :${binding}`);
+
+      expect(compiled.bindings).toEqual([binding]);
+      expect(compiled.sql).toBe("SELECT $1");
+      expect(() => compileSqlBinding(binding)).not.toThrow();
     }
   });
 });

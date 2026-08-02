@@ -1,0 +1,28 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`doctor diagnostics formata sujeito e origem de diagnostics em estrutura estável 1`] = `
+"✖ [E_SQL_BINDING_INVALID] (tasks > TaskController > list)
+  Binding incompatível.
+  Origem: <project>/src/tasks.sql:7:3
+  Encontrado: body.title, body.details
+  Sugestão: Regere o artifact."
+`;
+
+exports[`doctor diagnostics mantém snapshot dos diagnostics P0 representativos 1`] = `
+"✖ [E_MODULE_INVALID_EXPORT] (modules)
+  Export inválido.
+  Sugestão: Declare o provider.
+✖ [E_PROVIDER_CYCLE] (di)
+  Ciclo de providers.
+  Sugestão: Extraia um token de fronteira.
+✖ [E_PLUGIN_DUPLICATE] (plugins)
+  Plugin duplicado.
+  Sugestão: Remova a segunda instalação.
+✖ [E_ROUTE_DUPLICATE] (routes > UsersController > list)
+  Rota duplicada.
+  Sugestão: Mantenha uma única rota.
+✖ [E_SQL_BINDING_INVALID] (sql)
+  Binding incompatível.
+  Origem: src/tasks.sql:7
+  Sugestão: Regere o artifact."
+`;

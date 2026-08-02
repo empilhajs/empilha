@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   Controller,
-  Empilha,
+  createApplication,
   Get,
   Post,
   requestLogger,
   Use,
   type MiddlewareFn,
 } from "../../src";
+import { testModule } from "../helpers/test-utils";
 
 describe("Empilha scoped middleware", () => {
   test("requestLogger registra método, rota, status e duração", async () => {
@@ -27,11 +28,12 @@ describe("Empilha scoped middleware", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .useMiddleware(requestLogger((entry) => entries.push(entry)))
-      .validate([LoggedRoute])
-      .initialize([LoggedRoute]);
+    const app = await createApplication(testModule([LoggedRoute]), {
+      configure: (runtime) =>
+        runtime
+          .configureHttp({ cors: false })
+          .useMiddleware(requestLogger((entry) => entries.push(entry))),
+    });
 
     expect((await app.test().get("/logged")).status).toBe(200);
     expect(entries).toEqual([
@@ -86,11 +88,10 @@ describe("Empilha scoped middleware", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .useMiddleware(globalMiddleware)
-      .validate([Routes])
-      .initialize([Routes]);
+    const app = await createApplication(testModule([Routes]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false }).useMiddleware(globalMiddleware),
+    });
 
     const response = await app.test().post(
       "/middleware?page=2",
@@ -142,10 +143,9 @@ describe("Empilha scoped middleware", () => {
       }
     }
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Permissions])
-      .initialize([Permissions]);
+    const app = await createApplication(testModule([Permissions]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect((await app.test().get("/permissions/public")).status).toBe(200);
     expect((await app.test().get("/permissions/private")).status).toBe(403);

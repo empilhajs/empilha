@@ -25,7 +25,7 @@ describe("generate-query-types", () => {
       const result = Bun.spawnSync({
         cmd: [
           "bun",
-          "scripts/generate-query-types.ts",
+          "scripts/application/generate-query-types.ts",
           queries,
           output,
           "queryNames",
@@ -37,6 +37,49 @@ describe("generate-query-types", () => {
       expect(result.exitCode).toBe(0);
       expect(readFileSync(output, "utf8")).toContain('taskFind: "taskFind",');
       expect(readFileSync(output, "utf8")).toContain('taskList: "taskList",');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("gera artifacts com origem, bindings e cardinalidade", () => {
+    const directory = mkdtempSync(join(tmpdir(), "empilha-query-artifacts-"));
+    const queries = join(directory, "queries");
+    const output = join(directory, "query-artifacts.ts");
+
+    try {
+      mkdirSync(queries, { recursive: true });
+      writeFileSync(
+        join(queries, "tasks.sql"),
+        "-- @query taskList many\nSELECT * FROM tasks WHERE owner = :auth.sub AND page = :query.page::int;\n-- @query taskDelete exec\nDELETE FROM tasks WHERE id = :param.id?;\n",
+      );
+
+      const result = Bun.spawnSync({
+        cmd: [
+          "bun",
+          "scripts/application/generate-query-types.ts",
+          queries,
+          output,
+          "queryArtifacts",
+          "--artifacts",
+        ],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const generated = readFileSync(output, "utf8");
+      expect(result.exitCode).toBe(0);
+      expect(generated).toContain("defineGeneratedQuery");
+      expect(generated).toContain('"cardinality": "many"');
+      expect(generated).toContain('"cardinality": "exec"');
+      expect(generated).toContain('"auth.sub": "unknown"');
+      expect(generated).toContain('"query.page": "number"');
+      expect(generated).toContain('"param.id?": "boolean"');
+      expect(generated).toContain('"sqlHash":');
+      expect(generated).toContain("queryArtifactsManifest");
+      expect(generated).toContain("export type TaskListInput");
+      expect(generated).toContain("defineGeneratedQuery<never, TaskListInput>");
+      expect(generated).toContain("tasks.sql:1");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

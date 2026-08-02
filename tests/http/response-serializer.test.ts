@@ -3,14 +3,10 @@ import { t } from "../../src";
 import { compileResponseSerializer } from "../../src/http/response-serializer";
 
 describe("response serializer", () => {
-  test("serializa tipos primitivos, arrays e fallback", () => {
+  test("serializa tipos primitivos e arrays e rejeita schema inseguro", () => {
     const serializeString = compileResponseSerializer(t.String());
 
     const serializeNumber = compileResponseSerializer(t.Number());
-
-    const serializeUnsupported = compileResponseSerializer({
-      type: "unsupported",
-    } as never);
 
     expect(serializeString("x")).toBe('"x"');
 
@@ -20,7 +16,9 @@ describe("response serializer", () => {
       "[1,2]",
     );
 
-    expect(serializeUnsupported(undefined)).toBe("null");
+    expect(() =>
+      compileResponseSerializer({ type: "unsupported" } as never),
+    ).toThrow("não suportado");
   });
 
   test("mantém apenas propriedades declaradas e preserva objetos aninhados", () => {
@@ -72,6 +70,19 @@ describe("response serializer", () => {
       oneOf: [t.Object({ a: t.String() }), t.Object({ b: t.String() })],
     } as never);
 
-    expect(serialize({ a: "x", b: "y" })).toBe('{"a":"x","b":"y"}');
+    expect(() => serialize({ a: "x", b: "y" })).toThrow("único schema");
+  });
+
+  test("filtra campos extras em schemas compostos allOf", () => {
+    const serialize = compileResponseSerializer(
+      t.Intersect([
+        t.Object({ id: t.Integer() }),
+        t.Object({ name: t.String() }),
+      ]),
+    );
+
+    expect(serialize({ id: 1, name: "Ada", passwordHash: "hidden" })).toBe(
+      '{"id":1,"name":"Ada"}',
+    );
   });
 });

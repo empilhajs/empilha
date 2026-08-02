@@ -12,7 +12,12 @@ describe("ErrorPipeline", () => {
 
     expect(await handler(new HttpError(409, "conflict"))).toEqual({
       status: 409,
-      body: JSON.stringify({ error: "conflict" }),
+      body: JSON.stringify({
+        type: "about:blank",
+        title: "conflict",
+        status: 409,
+      }),
+      headers: { "Content-Type": "application/problem+json" },
     });
 
     expect(
@@ -20,8 +25,12 @@ describe("ErrorPipeline", () => {
     ).toEqual({
       status: 400,
       body: JSON.stringify({
+        type: "about:blank",
+        title: "Validation failed",
+        status: 400,
         errors: [{ path: "id", message: "bad" }],
       }),
+      headers: { "Content-Type": "application/problem+json" },
     });
   });
 

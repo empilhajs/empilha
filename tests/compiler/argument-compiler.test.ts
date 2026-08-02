@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileArgGetters } from "../../src/compiler/argument-compiler";
-import type { RouteMetadata } from "../../src/types";
+import type { RouteMetadata } from "../../src/core/types";
 
 const route = (parameters: RouteMetadata["parameters"]): RouteMetadata => ({
   propertyKey: "run",

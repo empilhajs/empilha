@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { migrationScript } from "../../scripts/migrations";
+import { migrationScript } from "../../scripts/database/migrations";
 
 describe("migrations", () => {
   test("aplica arquivos e histórico sob o mesmo lock transacional", () => {

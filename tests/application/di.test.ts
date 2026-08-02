@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   Context,
   Controller,
-  Empilha,
+  createApplication,
   Get,
   Inject,
   Injectable,
 } from "../../src";
 import { Container } from "../../src/di/index";
+import { testModule } from "../helpers/test-utils";
 
 describe("dependency injection", () => {
   test("respeita o escopo declarado em Injectable", async () => {
@@ -32,10 +33,9 @@ describe("dependency injection", () => {
 
     Controller("/decorated-scope")(Requests);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Requests])
-      .initialize([Requests]);
+    const app = await createApplication(testModule([Requests]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     const first = await app.test().get("/decorated-scope");
     const second = await app.test().get("/decorated-scope");
@@ -75,15 +75,19 @@ describe("dependency injection", () => {
 
     Controller("/users")(Users);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .provide(EmailService, {
-        useValue: {
-          send: () => "mock",
-        },
-      });
-
-    app.validate([Users]).initialize([Users]);
+    const app = await createApplication(
+      testModule([Users], {
+        providers: [
+          {
+            provide: EmailService,
+            useValue: {
+              send: () => "mock",
+            },
+          },
+        ],
+      }),
+      { configure: (runtime) => runtime.configureHttp({ cors: false }) },
+    );
 
     const response = await app.test().get("/users");
 
@@ -171,14 +175,18 @@ describe("dependency injection", () => {
     Context()(Requests.prototype, "get", 0);
     Controller("/request-scope")(Requests);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .provide(RequestService, {
-        useClass: RequestService,
-        scope: "request",
-      });
-
-    app.validate([Requests]).initialize([Requests]);
+    const app = await createApplication(
+      testModule([Requests], {
+        providers: [
+          {
+            provide: RequestService,
+            useClass: RequestService,
+            scope: "request",
+          },
+        ],
+      }),
+      { configure: (runtime) => runtime.configureHttp({ cors: false }) },
+    );
 
     const [first, second] = await Promise.all([
       app.test().get("/request-scope"),
@@ -229,14 +237,18 @@ describe("dependency injection", () => {
     Context()(Requests.prototype, "get", 0);
     Controller("/constructor-scope")(Requests);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .provide(RequestService, {
-        useClass: RequestService,
-        scope: "request",
-      })
-      .validate([Requests])
-      .initialize([Requests]);
+    const app = await createApplication(
+      testModule([Requests], {
+        providers: [
+          {
+            provide: RequestService,
+            useClass: RequestService,
+            scope: "request",
+          },
+        ],
+      }),
+      { configure: (runtime) => runtime.configureHttp({ cors: false }) },
+    );
 
     const first = await app.test().get("/constructor-scope");
     const second = await app.test().get("/constructor-scope");
@@ -268,10 +280,9 @@ describe("dependency injection", () => {
 
     Controller("/stable-controller")(Stable);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .validate([Stable])
-      .initialize([Stable]);
+    const app = await createApplication(testModule([Stable]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
 
     expect(await (await app.test().get("/stable-controller")).json()).toBe(1);
     expect(await (await app.test().get("/stable-controller")).json()).toBe(1);
@@ -284,19 +295,26 @@ describe("dependency injection", () => {
     class First {}
     class Second {}
 
-    const app = new Empilha()
-      .provide(First, {
-        useClass: First,
-        onDispose: () => {
-          disposed.push("first");
-        },
-      })
-      .provide(Second, {
-        useClass: Second,
-        onDispose: async () => {
-          disposed.push("second");
-        },
-      });
+    const app = await createApplication(
+      testModule([], {
+        providers: [
+          {
+            provide: First,
+            useClass: First,
+            onDispose: () => {
+              disposed.push("first");
+            },
+          },
+          {
+            provide: Second,
+            useClass: Second,
+            onDispose: async () => {
+              disposed.push("second");
+            },
+          },
+        ],
+      }),
+    );
 
     app.container.resolve(First);
     app.container.resolve(Second);
@@ -306,6 +324,57 @@ describe("dependency injection", () => {
 
     expect(disposed).toEqual(["second", "first"]);
     expect(() => app.container.resolve(First)).toThrow("encerrado");
+  });
+
+  test("compartilha uma única ativação assíncrona de singleton concorrente", async () => {
+    const token = Symbol("async-singleton");
+    let activations = 0;
+    const container = new Container().provide(token, {
+      useFactory: async () => {
+        activations++;
+        await Promise.resolve();
+        return { activation: activations };
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      container.resolveAsync(token),
+      container.resolveAsync(token),
+    ]);
+
+    expect(first).toBe(second);
+    expect(activations).toBe(1);
+    await container.dispose();
+  });
+
+  test("aguarda e descarta uma ativação assíncrona iniciada antes do close", async () => {
+    const token = Symbol("closing-singleton");
+    const disposed: unknown[] = [];
+    let finishActivation: (() => void) | undefined;
+    const activation = new Promise<void>((resolve) => {
+      finishActivation = resolve;
+    });
+    const container = new Container().provide(token, {
+      useFactory: async () => {
+        await activation;
+        return {};
+      },
+      onDispose: (value) => {
+        disposed.push(value);
+      },
+    });
+
+    const resolving = container.resolveAsync(token);
+    expect(() => container.provide(token, { useValue: {} })).toThrow(
+      "está sendo ativado",
+    );
+    const closing = container.dispose();
+    finishActivation?.();
+    const value = await resolving;
+    await closing;
+
+    expect(disposed).toEqual([value]);
+    expect(() => container.resolve(token)).toThrow("encerrado");
   });
 
   test("encerra providers request depois que a requisição termina", async () => {
@@ -330,17 +399,21 @@ describe("dependency injection", () => {
 
     Controller("/request-disposal")(Requests);
 
-    const app = new Empilha()
-      .configureHttp({ cors: false })
-      .provide(RequestService, {
-        useClass: RequestService,
-        scope: "request",
-        onDispose: (service) => {
-          disposed.push(service.id);
-        },
-      })
-      .validate([Requests])
-      .initialize([Requests]);
+    const app = await createApplication(
+      testModule([Requests], {
+        providers: [
+          {
+            provide: RequestService,
+            useClass: RequestService,
+            scope: "request",
+            onDispose: (service) => {
+              disposed.push((service as RequestService).id);
+            },
+          },
+        ],
+      }),
+      { configure: (runtime) => runtime.configureHttp({ cors: false }) },
+    );
 
     const response = await app.test().get("/request-disposal");
 

@@ -39,6 +39,31 @@ describe("request query parsing", () => {
     });
   });
 
+  test("rejeita query acima dos limites de bytes e parâmetros", () => {
+    expect(() =>
+      parseRequestQuery("http://test/?value=12345", undefined, {
+        maxBytes: 4,
+      }),
+    ).toThrow("bytes");
+    expect(() =>
+      parseRequestQuery("http://test/?id=1&id=2&id=3", undefined, {
+        maxParameters: 2,
+      }),
+    ).toThrow("parâmetros");
+  });
+
+  test("acumula chaves duplicadas linearmente", () => {
+    const values = Array.from({ length: 200 }, (_, index) => `id=${index}`);
+    const query = parseRequestQuery(
+      `http://test/?${values.join("&")}`,
+      undefined,
+      { maxParameters: 200 },
+    );
+
+    expect(query.id).toHaveLength(200);
+    expect(query.id?.[199]).toBe("199");
+  });
+
   test("rejeita percent encoding inválido", () => {
     expect(() => parseRequestQuery("http://test/?name=%ZZ")).toThrow(URIError);
   });
