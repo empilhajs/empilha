@@ -55,8 +55,12 @@ function problemDetails(
   };
 }
 
-function publicErrorMessage(status: number, message: string): string {
-  return process.env.NODE_ENV === "production" && status >= 500
+function publicErrorMessage(
+  status: number,
+  message: string,
+  exposeInternalErrors: boolean,
+): string {
+  return !exposeInternalErrors && status >= 500
     ? INTERNAL_SERVER_ERROR
     : message;
 }
@@ -102,7 +106,10 @@ function normalizeServerResponse(value: unknown): ServerResponse | null {
   return response;
 }
 
-function defaultErrorResponse(error: unknown): ServerResponse {
+function defaultErrorResponse(
+  error: unknown,
+  exposeInternalErrors: boolean,
+): ServerResponse {
   if (error instanceof ValidationError) {
     return {
       status: 400,
@@ -130,7 +137,7 @@ function defaultErrorResponse(error: unknown): ServerResponse {
   if (error instanceof HttpError) {
     return createErrorResponse(
       error.status,
-      publicErrorMessage(error.status, error.message),
+      publicErrorMessage(error.status, error.message, exposeInternalErrors),
     );
   }
 
@@ -150,6 +157,7 @@ function defaultErrorResponse(error: unknown): ServerResponse {
           typeof error.message === "string"
             ? error.message
             : INTERNAL_SERVER_ERROR,
+          exposeInternalErrors,
         ),
       );
     }
@@ -161,6 +169,12 @@ function defaultErrorResponse(error: unknown): ServerResponse {
 /** Registra catchers e converte falhas do framework em respostas HTTP. */
 export class ErrorPipeline {
   private readonly globalCatchers = new Map<Function, CatchHandler>();
+
+  private exposeInternalErrors = false;
+
+  setExposeInternalErrors(enabled: boolean): void {
+    this.exposeInternalErrors = enabled;
+  }
 
   /**
    * Registra um catcher global para uma classe de erro.
@@ -216,7 +230,7 @@ export class ErrorPipeline {
           }
         );
       } catch (handlerError) {
-        return defaultErrorResponse(handlerError);
+        return defaultErrorResponse(handlerError, this.exposeInternalErrors);
       }
     };
   }
@@ -234,7 +248,7 @@ export class ErrorPipeline {
     }
 
     if (!handler) {
-      return defaultErrorResponse(error);
+      return defaultErrorResponse(error, this.exposeInternalErrors);
     }
 
     try {
@@ -247,7 +261,7 @@ export class ErrorPipeline {
         }
       );
     } catch (handlerError) {
-      return defaultErrorResponse(handlerError);
+      return defaultErrorResponse(handlerError, this.exposeInternalErrors);
     }
   }
 }

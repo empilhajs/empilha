@@ -4,6 +4,15 @@ import { JsonBodyReader } from "../../src/http";
 import { ApplicationEvents } from "../../src/runtime";
 import { request } from "../helpers/test-utils";
 
+function nativeResponseHeaders(response: Response, name: string): string[] {
+  const headers = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  return name === "set-cookie"
+    ? (headers.getSetCookie?.() ?? [])
+    : [response.headers.get(name) ?? ""];
+}
+
 describe("HttpAdapter", () => {
   test("não cria scope para rota stateless sem timeout", async () => {
     const adapter = new HttpAdapter();
@@ -32,6 +41,83 @@ describe("HttpAdapter", () => {
     expect(response.headers.get("x-request-id")).toMatch(
       /^[0-9a-z]+-[0-9a-z]+-[0-9a-z]+$/,
     );
+  });
+
+  test("remove o corpo no fallback HEAD e aplica headers à Response nativa", async () => {
+    const adapter = new HttpAdapter();
+    adapter.setHandlerTimeout(null);
+    adapter.enableCors("https://example.test");
+    adapter.setServerHeader("Empilha");
+    adapter.get("/head", () => "hello");
+    adapter.head("/explicit-head", () => "explicit");
+    adapter.getJson("/json-head", { ok: true });
+    adapter.get("/error-head", () => {
+      throw new Error("head error");
+    });
+    adapter.get("/native", () => new Response("ok"));
+    adapter.get("/native-head", () => new Response("hello"));
+    adapter.get(
+      "/stream-head",
+      () =>
+        new Response(
+          new ReadableStream({ start: (controller) => controller.close() }),
+          {
+            headers: { "Content-Type": "application/octet-stream" },
+          },
+        ),
+    );
+    adapter.get("/native-cookies", () => {
+      const headers = new Headers();
+      headers.append("Set-Cookie", "a=1");
+      headers.append("Set-Cookie", "b=2");
+      return new Response("ok", { headers });
+    });
+    adapter.get("/native-locked", () => {
+      const response = new Response("locked");
+      void response.text();
+      return response;
+    });
+
+    const head = await adapter.handleRequest(
+      request("/head", { method: "HEAD" }),
+    );
+    const native = await adapter.handleRequest(request("/native"));
+    const nativeHead = await adapter.handleRequest(
+      request("/native-head", { method: "HEAD" }),
+    );
+    const explicitHead = await adapter.handleRequest(
+      request("/explicit-head", { method: "HEAD" }),
+    );
+    const jsonHead = await adapter.handleRequest(
+      request("/json-head", { method: "HEAD" }),
+    );
+    const streamHead = await adapter.handleRequest(
+      request("/stream-head", { method: "HEAD" }),
+    );
+    const errorHead = await adapter.handleRequest(
+      request("/error-head", { method: "HEAD" }),
+    );
+
+    expect(await head.text()).toBe("");
+    expect(await explicitHead.text()).toBe("");
+    expect(jsonHead.headers.get("content-length")).toBe("11");
+    expect(await jsonHead.text()).toBe("");
+    expect(await streamHead.text()).toBe("");
+    expect(errorHead.status).toBe(500);
+    expect(await errorHead.text()).toBe("");
+    expect(native.headers.get("access-control-allow-origin")).toBe(
+      "https://example.test",
+    );
+    expect(native.headers.get("server")).toBe("Empilha");
+    expect(nativeHead.headers.get("content-length")).toBe("5");
+    const cookies = nativeResponseHeaders(
+      await adapter.handleRequest(request("/native-cookies")),
+      "set-cookie",
+    );
+    expect(cookies).toEqual(["a=1", "b=2"]);
+    expect(
+      (await adapter.handleRequest(request("/native-locked"))).status,
+    ).toBe(500);
   });
 
   test("rejeita requests que excedem o limite de headers", async () => {
@@ -813,12 +899,13 @@ describe("HttpAdapter", () => {
 
   test("getFile não força content type JSON", async () => {
     const adapter = new HttpAdapter();
-    adapter.getFile("/file", Bun.file("package.json"));
+    adapter.getFile("/file", Bun.file("README.md"));
 
     const response = await adapter.handleRequest(request("/file"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).not.toBe("application/json");
+    expect(response.headers.get("content-type")).toContain("text/markdown");
   });
 
   test("mantém a semântica JSON do writer para vazio e BOM", async () => {

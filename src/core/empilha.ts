@@ -51,7 +51,7 @@ import type { ControllerInstance } from "../compiler";
 import { invokeController } from "../utils/controller";
 import { ApplicationRunner } from "../application/lifecycle/application-runner";
 import type { HealthCheckOptions } from "../application/lifecycle/health-checks";
-import { validateTimeout } from "../http/adapter-helpers";
+import { validateHttpOptions, validateTimeout } from "../http/adapter-helpers";
 import { createRequestId } from "../http/request-id";
 import type { Logger } from "../utils/logger";
 import type {
@@ -148,7 +148,10 @@ function assertRuntimeConfig(config: EmpilhaRuntimeConfig): void {
       throw new TypeError("server.signals deve ser booleano.");
     }
   }
-  if (config.http !== undefined) assertConfigObject(config.http, "http");
+  if (config.http !== undefined) {
+    assertConfigObject(config.http, "http");
+    validateHttpOptions(config.http);
+  }
   if (config.health !== undefined) assertConfigObject(config.health, "health");
   if (config.openapi !== undefined && config.openapi !== false)
     assertConfigObject(config.openapi, "openapi");
@@ -398,12 +401,16 @@ export class ApplicationRuntime {
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
     this.assertConfiguring("configureHttp()");
+    validateHttpOptions(options);
+    const disposalTimeout =
+      options.disposalTimeout !== undefined
+        ? validateTimeout(options.disposalTimeout, "descarte")
+        : undefined;
     this.http.configure(options);
-    if (options.disposalTimeout !== undefined)
-      this.disposalTimeoutMs = validateTimeout(
-        options.disposalTimeout,
-        "descarte",
-      );
+    if (options.exposeInternalErrors !== undefined) {
+      this.errors.setExposeInternalErrors(options.exposeInternalErrors);
+    }
+    if (disposalTimeout !== undefined) this.disposalTimeoutMs = disposalTimeout;
 
     return this;
   }

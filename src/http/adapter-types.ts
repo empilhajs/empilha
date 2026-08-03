@@ -62,4 +62,6 @@ export type HttpOptions = {
   handlerTimeout?: number | null;
   maxConcurrentRequests?: number | null;
   shutdownTimeout?: number | null;
+  /** Permite expor mensagens internas 5xx somente quando explicitamente ativado. */
+  exposeInternalErrors?: boolean;
 };

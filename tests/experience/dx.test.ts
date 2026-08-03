@@ -66,6 +66,13 @@ describe("atalhos de experiência de desenvolvimento", () => {
         runtime: { server: { port: 70_000 } },
       }),
     ).rejects.toThrow("porta do servidor");
+
+    await expect(
+      createApplication(testModule([]), {
+        configure: (runtime) =>
+          runtime.configureHttp({ cors: false, maxQueryBytes: 0 }),
+      }),
+    ).rejects.toThrow("maxQueryBytes");
   });
 
   test("habilita logging de requests pela configuração centralizada", async () => {

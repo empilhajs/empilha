@@ -162,6 +162,60 @@ export class HttpResponseWriter {
     });
   }
 
+  /** Aplica as políticas globais também a uma Response criada pelo handler. */
+  native(response: Response): Response {
+    if (response.bodyUsed || response.body?.locked) {
+      throw new TypeError(
+        "A Response nativa já consumiu ou bloqueou o body antes do retorno.",
+      );
+    }
+    const headers = new Headers(this.buildHeaders());
+    const setCookies = (
+      response.headers as Headers & { getSetCookie?: () => string[] }
+    ).getSetCookie?.();
+    response.headers.forEach((value, name) => {
+      if (name !== "set-cookie") headers.set(name, value);
+    });
+    for (const cookie of setCookies ?? []) {
+      headers.append("set-cookie", cookie);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  /** Remove o corpo de HEAD preservando status e headers. */
+  finalize(response: Response, method: string): Response | Promise<Response> {
+    if (method !== "HEAD") return response;
+    const headers = new Headers(response.headers);
+    if (
+      !headers.has("content-length") &&
+      response.body !== null &&
+      /^(?:text\/|application\/json(?:;|$))/i.test(
+        headers.get("content-type") ?? "",
+      )
+    ) {
+      return response
+        .clone()
+        .arrayBuffer()
+        .then((body) => {
+          headers.set("content-length", String(body.byteLength));
+          return new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          });
+        });
+    }
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
   /** Cria uma resposta textual sem passar por `ServerResponse`. */
   text(body: string, headers?: Record<string, string>): Response {
     return new Response(body, {
@@ -185,11 +239,21 @@ export class HttpResponseWriter {
 
   /** Cria uma resposta de arquivo preservando os headers comuns do adapter. */
   file(file: Bun.BunFile, headers?: Record<string, string>): Response {
+    const fileHeaders = {
+      ...this.buildHeaders(headers, false),
+    };
+    // O content type inferido do BunFile pode não estar materializado nas
+    // headers da Response em tempo de leitura; fixá-lo aqui preserva o tipo
+    // mesmo depois do finalizador global mesclar os headers comuns.
+    if (
+      file.type &&
+      headers?.["Content-Type"] === undefined &&
+      fileHeaders["Content-Type"] === undefined
+    ) {
+      fileHeaders["Content-Type"] = file.type;
+    }
     return new Response(file, {
-      // O Bun deve inferir o content type do BunFile quando a rota não
-      // substitui esse header explicitamente. Aplicar application/json aqui
-      // corromperia silenciosamente respostas de arquivos.
-      headers: this.buildHeaders(headers, false),
+      headers: fileHeaders,
     });
   }
 

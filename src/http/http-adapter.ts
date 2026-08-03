@@ -25,7 +25,13 @@ import {
   type HttpOptions,
   type NativeRouteEligibility,
 } from "./adapter-types";
-import { isPromise, validateLimit, validateTimeout } from "./adapter-helpers";
+import {
+  isPromise,
+  validateHttpOptions,
+  validateLimit,
+  validatePositiveInteger,
+  validateTimeout,
+} from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
 import {
   headersToRecord,
@@ -55,13 +61,6 @@ export type {
 export type { HttpOptions } from "./adapter-types";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-function validatePositiveInteger(value: number, label: string): number {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new RangeError(`O limite de ${label} deve ser um inteiro positivo.`);
-  }
-  return value;
-}
 
 type MatchedRoute = {
   handler: ServerHandler;
@@ -148,6 +147,7 @@ export class HttpAdapter {
 
   /** Aplica todas as opções HTTP em uma única operação de configuração. */
   configure(options: HttpOptions): void {
+    validateHttpOptions(options);
     if (options.requestId !== undefined)
       this.setRequestIdEnabled(options.requestId);
     if (options.cors === false) this.disableCors();
@@ -441,7 +441,7 @@ export class HttpAdapter {
     response: ServerHandlerResult,
     responseType?: ConfiguredHandler["responseType"],
   ): Response {
-    if (response instanceof Response) return response;
+    if (response instanceof Response) return this.responses.native(response);
     if (typeof response === "string") return this.responses.text(response);
 
     if (responseType === "json" && response.jsonValue !== undefined) {
@@ -538,7 +538,7 @@ export class HttpAdapter {
    */
   handleRequest(request: Request): Response | Promise<Response> {
     const startedAt = this.clock.now();
-    const complete = (response: Response): Response => {
+    const emitComplete = (response: Response): Response => {
       const requestId =
         response.headers.get("X-Request-Id") ??
         request.headers.get("X-Request-Id") ??
@@ -568,6 +568,12 @@ export class HttpAdapter {
       );
       return response;
     };
+    const complete = (response: Response): Response | Promise<Response> => {
+      const finalized = this.responses.finalize(response, request.method);
+      return isPromise(finalized)
+        ? finalized.then(emitComplete)
+        : emitComplete(finalized);
+    };
     const failed = (error: unknown): never => {
       this.events?.emit(
         "request.completed",
@@ -596,6 +602,8 @@ export class HttpAdapter {
   private dispatchRequest(request: Request): Response | Promise<Response> {
     if (
       this.maxHeaderCount !== null &&
+      // Headers já foram normalizados pela API Fetch; este limite conta
+      // campos distintos, não bytes nem repetições brutas do wire format.
       countHeaders(request.headers) > this.maxHeaderCount
     ) {
       return this.responses.error(431, "Request Header Fields Too Large");
@@ -864,7 +872,7 @@ export class HttpAdapter {
     ) {
       this.addNativeRoute(normalizedMethod, normalizedPath, (_request) => {
         const startedAt = this.clock.now();
-        const complete = (response: Response): Response => {
+        const emitComplete = (response: Response): Response => {
           this.events?.emit(
             "request.completed",
             Object.freeze({
@@ -877,6 +885,12 @@ export class HttpAdapter {
             }),
           );
           return response;
+        };
+        const complete = (response: Response): Response | Promise<Response> => {
+          const finalized = this.responses.finalize(response, _request.method);
+          return isPromise(finalized)
+            ? finalized.then(emitComplete)
+            : emitComplete(finalized);
         };
         try {
           const result = handler(undefined as never);

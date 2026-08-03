@@ -77,34 +77,33 @@ describe("Empilha errors", () => {
     });
   });
 
-  test("não expõe detalhes de HttpError 5xx em produção", async () => {
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    try {
-      class ProductionFailure {
-        @Get("/")
-        fail() {
-          throw new HttpError(503, "database password leaked");
-        }
+  test("mascara HttpError 5xx por padrão e permite exposição explícita", async () => {
+    class InternalFailure {
+      @Get("/")
+      fail() {
+        throw new HttpError(503, "database password leaked");
       }
-      Controller("/production-failure")(ProductionFailure);
-      const app = await createApplication(testModule([ProductionFailure]), {
-        configure: (runtime) => runtime.configureHttp({ cors: false }),
-      });
-
-      const response = await app.test().get("/production-failure");
-      const body = await response.json();
-      expect(response.status).toBe(503);
-      expect(body).toMatchObject({
-        status: 503,
-        title: "Internal server error",
-      });
-      expect(JSON.stringify(body)).not.toContain("database password leaked");
-      await app.close();
-    } finally {
-      if (previous === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previous;
     }
+    Controller("/internal-failure")(InternalFailure);
+    const safeApp = await createApplication(testModule([InternalFailure]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
+    const exposedApp = await createApplication(testModule([InternalFailure]), {
+      configure: (runtime) =>
+        runtime.configureHttp({ cors: false, exposeInternalErrors: true }),
+    });
+
+    const safeResponse = await safeApp.test().get("/internal-failure");
+    expect(await safeResponse.json()).toMatchObject({
+      status: 503,
+      title: "Internal server error",
+    });
+    const exposedResponse = await exposedApp.test().get("/internal-failure");
+    expect(await exposedResponse.json()).toMatchObject({
+      status: 503,
+      title: "database password leaked",
+    });
+    await Promise.all([safeApp.close(), exposedApp.close()]);
   });
 
   test("prioriza catcher específico sobre genérico", async () => {
