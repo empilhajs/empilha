@@ -2,6 +2,10 @@ import type { TSchema } from "@sinclair/typebox";
 import type { ParameterMetadata, RegisteredRouteMetadata } from "../core/types";
 import { statusCode } from "../compiler/response-compiler";
 import { ErrorResponseSchema } from "../errors";
+import {
+  parseRoutePattern,
+  type PatternSegment,
+} from "../router/route-pattern";
 
 type OpenApiSchema =
   | TSchema
@@ -138,17 +142,25 @@ function schemaForParameter(parameter: ParameterMetadata): OpenApiSchema {
 
 function parametersForRoute(
   route: RegisteredRouteMetadata,
-  path: string,
+  segments: readonly PatternSegment[],
+  omittedOptionalParameter?: string,
 ): OpenApiParameter[] {
   if (
     route.parameters.length === 0 &&
     route.querySchema === undefined &&
     route.headerSchema === undefined &&
-    !path.includes(":")
+    !segments.some((segment) => segment.kind !== "static")
   ) {
     return [];
   }
 
+  const routeParameters = new Map(
+    segments.flatMap((segment) =>
+      segment.kind === "param" || segment.kind === "wildcard"
+        ? [[segment.name, segment] as const]
+        : [],
+    ),
+  );
   const parameters: OpenApiParameter[] = route.parameters.flatMap(
     (parameter): OpenApiParameter[] => {
       if (
@@ -159,12 +171,24 @@ function parametersForRoute(
         return [];
       }
 
+      const name = parameter.name as string;
+      if (parameter.source === "param" && name === omittedOptionalParameter) {
+        return [];
+      }
+      const segment = routeParameters.get(name);
+      const schema = schemaForParameter(parameter);
       return [
         {
-          name: parameter.name as string,
+          name,
           in: parameter.source === "param" ? "path" : parameter.source,
           required: parameter.source === "param",
-          schema: schemaForParameter(parameter),
+          schema:
+            segment?.kind === "param" && segment.expressionSource
+              ? ({
+                  ...schema,
+                  pattern: segment.expressionSource,
+                } as OpenApiSchema)
+              : schema,
         },
       ];
     },
@@ -194,14 +218,21 @@ function parametersForRoute(
       .map((parameter) => parameter.name),
   );
 
-  for (const match of path.matchAll(/:([^/]+)/g)) {
-    const name = match[1];
+  for (const segment of segments) {
+    if (segment.kind === "static") continue;
+    const name = segment.name;
+    if (name === omittedOptionalParameter) continue;
     if (!declared.has(name)) {
       parameters.push({
         name,
         in: "path",
         required: true,
-        schema: { type: "string" },
+        schema: {
+          type: "string",
+          ...(segment.kind === "param" && segment.expressionSource
+            ? { pattern: segment.expressionSource }
+            : {}),
+        } as OpenApiSchema,
       });
     }
   }
@@ -209,9 +240,32 @@ function parametersForRoute(
   return parameters;
 }
 
-function openApiPath(path: string): string {
-  if (!path.includes(":")) return path;
-  return path.replace(/:([^/]+)/g, "{$1}");
+type OpenApiPathVariant = {
+  path: string;
+  segments: PatternSegment[];
+  omittedOptionalParameter?: string;
+};
+
+function openApiPathVariants(path: string): OpenApiPathVariant[] {
+  const segments = parseRoutePattern(path);
+  const render = (items: readonly PatternSegment[]): string =>
+    `/${items
+      .map((segment) =>
+        segment.kind === "static" ? segment.value : `{${segment.name}}`,
+      )
+      .join("/")}`;
+  const optional = segments.at(-1);
+  if (optional?.kind !== "param" || !optional.optional) {
+    return [{ path: render(segments), segments }];
+  }
+  return [
+    {
+      path: render(segments.slice(0, -1)),
+      segments,
+      omittedOptionalParameter: optional.name,
+    },
+    { path: render(segments), segments },
+  ];
 }
 
 const NO_CONTENT_RESPONSE: OpenApiResponse = Object.freeze({
@@ -457,52 +511,48 @@ export class OpenApiDocumentBuilder {
     route: RegisteredRouteMetadata,
     tags: readonly string[] = [],
   ): void {
-    const documentPath = openApiPath(path);
-    const pathItem = this.paths[documentPath] ?? {};
-    if (
-      this.routeTransaction &&
-      !this.routeTransaction.paths.has(documentPath)
-    ) {
-      this.routeTransaction.paths.set(
-        documentPath,
-        this.paths[documentPath] ? { ...this.paths[documentPath] } : undefined,
-      );
-    }
-    const parameters = parametersForRoute(route, path);
     const status = statusCode(route);
-
-    const operation: OpenApiOperation = {
-      operationId: `${controllerName}.${String(route.propertyKey)}`,
-      tags: tags.length > 0 ? [...tags] : [controllerName],
-      responses: responsesForRoute(route, status),
-    };
-
-    if (parameters.length > 0) {
-      operation.parameters = parameters;
-    }
-
-    if (route.bodySchema) {
-      operation.requestBody = {
-        required: true,
-        content: {
-          "application/json": {
-            schema: route.bodySchema,
-          },
-        },
+    for (const variant of openApiPathVariants(path)) {
+      const pathItem = this.paths[variant.path] ?? {};
+      if (
+        this.routeTransaction &&
+        !this.routeTransaction.paths.has(variant.path)
+      ) {
+        this.routeTransaction.paths.set(
+          variant.path,
+          this.paths[variant.path]
+            ? { ...this.paths[variant.path] }
+            : undefined,
+        );
+      }
+      const parameters = parametersForRoute(
+        route,
+        variant.segments,
+        variant.omittedOptionalParameter,
+      );
+      const operation: OpenApiOperation = {
+        operationId:
+          `${controllerName}.${String(route.propertyKey)}` +
+          (variant.omittedOptionalParameter ? ".withoutOptional" : ""),
+        tags: tags.length > 0 ? [...tags] : [controllerName],
+        responses: responsesForRoute(route, status),
       };
+      if (parameters.length > 0) operation.parameters = parameters;
+      if (route.bodySchema) {
+        operation.requestBody = {
+          required: true,
+          content: {
+            "application/json": { schema: route.bodySchema },
+          },
+        };
+      }
+      if (route.auth || route.requiresAuth) {
+        this.hasBearerAuthentication = true;
+        operation.security = [{ bearerAuth: [] }];
+      }
+      pathItem[route.method.toLowerCase()] = operation;
+      this.paths[variant.path] = pathItem;
     }
-
-    if (route.auth || route.requiresAuth) {
-      this.hasBearerAuthentication = true;
-      operation.security = [
-        {
-          bearerAuth: [],
-        },
-      ];
-    }
-
-    pathItem[route.method.toLowerCase()] = operation;
-    this.paths[documentPath] = pathItem;
   }
 
   /**

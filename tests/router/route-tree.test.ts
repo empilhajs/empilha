@@ -135,6 +135,33 @@ describe("RouteTree", () => {
     expect(router.find("GET", "/orders/abc")).toBeNull();
   });
 
+  test("rejeita wildcard e parâmetro opcional fora da posição terminal", () => {
+    const router = new RouteTree();
+
+    expect(() =>
+      router.insert("GET", "/files/*rest/tail", () => "bad"),
+    ).toThrow("Wildcard deve ser o último segmento");
+    expect(() => router.insert("GET", "/users/:id?/edit", () => "bad")).toThrow(
+      "Parâmetro opcional deve ser o último segmento",
+    );
+  });
+
+  test("remove também valida a mesma gramática de padrões", () => {
+    const router = new RouteTree();
+    const remove = (
+      router as unknown as {
+        remove(method: string, path: string): void;
+      }
+    ).remove.bind(router);
+
+    expect(() => remove("GET", "/files/*rest/tail")).toThrow(
+      "Wildcard deve ser o último segmento",
+    );
+    expect(() => remove("GET", "/users/:id?/edit")).toThrow(
+      "Parâmetro opcional deve ser o último segmento",
+    );
+  });
+
   test("rejeita expressões regulares concorrentes na mesma posição", () => {
     const router = new RouteTree();
     const numeric = () => "numeric";

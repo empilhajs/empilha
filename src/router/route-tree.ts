@@ -1,5 +1,10 @@
 import { normalizeMethod, normalizePath, splitPath } from "./path";
 import { createStringRecord, EMPTY_STRING_RECORD } from "../utils/records";
+import {
+  parseRoutePattern,
+  routeHasPattern,
+  type PatternSegment,
+} from "./route-pattern";
 
 /**
  * Representa qualquer função que pode ser armazenada
@@ -37,11 +42,6 @@ interface RouteNode<THandler extends Handler> {
   staticChildren: Map<string, RouteNode<THandler>>;
   paramChild: ParamChild<THandler> | null;
 }
-
-type PatternSegment =
-  | { kind: "static"; value: string }
-  | { kind: "param"; name: string; expression?: RegExp; optional: boolean }
-  | { kind: "wildcard"; name: string };
 
 type PatternRoute<THandler extends Handler> = {
   method: string;
@@ -272,48 +272,19 @@ export class RouteTree<THandler extends Handler = Handler> {
     const normalizedMethod = normalizeMethod(method);
     const normalizedPath = normalizePath(path);
     const segments = splitPath(normalizedPath);
+    const patternSegments = parseRoutePattern(normalizedPath);
 
-    const patternSegments = segments.map((segment): PatternSegment => {
-      if (segment.startsWith("*")) {
-        if (!/^\*[A-Za-z_]\w*$/.test(segment)) {
-          throw new Error(
-            `Wildcard inválido "${segment}" na rota "${normalizedPath}".`,
-          );
-        }
-        return { kind: "wildcard", name: segment.slice(1) };
-      }
-
-      const match = segment.match(/^:([A-Za-z_]\w*)(?:<(.+)>)?(\?)?$/);
-      if (match) {
-        return {
-          kind: "param",
-          name: match[1],
-          expression: match[2] ? new RegExp(`^(?:${match[2]})$`) : undefined,
-          optional: match[3] === "?",
-        };
-      }
-
-      if (segment.startsWith(":") || segment.includes("*")) {
-        throw new Error(
-          `Parâmetro inválido "${segment}" na rota "${normalizedPath}".`,
-        );
-      }
-      return { kind: "static", value: segment };
-    });
-
-    const hasPattern = patternSegments.some(
-      (segment) =>
-        segment.kind === "wildcard" ||
-        (segment.kind === "param" &&
-          (segment.optional || segment.expression !== undefined)),
-    );
-    const ambiguous = this.registeredRoutes.find(
-      (route) =>
-        route.method === normalizedMethod &&
-        (hasPattern || route.hasPattern) &&
-        !samePattern(route.segments, patternSegments) &&
-        patternsMayOverlap(route.segments, patternSegments),
-    );
+    const hasPattern = routeHasPattern(patternSegments);
+    const ambiguous =
+      hasPattern || this.patternRoutes.length > 0
+        ? this.registeredRoutes.find(
+            (route) =>
+              route.method === normalizedMethod &&
+              (hasPattern || route.hasPattern) &&
+              !samePattern(route.segments, patternSegments) &&
+              patternsMayOverlap(route.segments, patternSegments),
+          )
+        : undefined;
     if (ambiguous) {
       throw new Error(
         `Rotas ambíguas: ${normalizedMethod} ${ambiguous.path} e ${normalizedPath}`,
@@ -421,27 +392,8 @@ export class RouteTree<THandler extends Handler = Handler> {
     const normalizedMethod = normalizeMethod(method);
     const normalizedPath = normalizePath(path);
     const segments = splitPath(normalizedPath);
-    const patternSegments: PatternSegment[] = segments.map((segment) => {
-      if (segment.startsWith("*")) {
-        return { kind: "wildcard", name: segment.slice(1) };
-      }
-      const match = segment.match(/^:([A-Za-z_]\w*)(?:<(.+)>)?(\?)?$/);
-      if (match) {
-        return {
-          kind: "param",
-          name: match[1],
-          expression: match[2] ? new RegExp(`^(?:${match[2]})$`) : undefined,
-          optional: match[3] === "?",
-        };
-      }
-      return { kind: "static", value: segment };
-    });
-    const hasPattern = patternSegments.some(
-      (segment) =>
-        segment.kind === "wildcard" ||
-        (segment.kind === "param" &&
-          (segment.optional || segment.expression !== undefined)),
-    );
+    const patternSegments = parseRoutePattern(normalizedPath);
+    const hasPattern = routeHasPattern(patternSegments);
     const registeredIndex = this.registeredRoutes.findIndex(
       (route) =>
         route.method === normalizedMethod && route.path === normalizedPath,

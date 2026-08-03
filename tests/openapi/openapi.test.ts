@@ -22,6 +22,39 @@ import { OpenApiDocumentBuilder } from "../../src/openapi";
 import type { RegisteredRouteMetadata } from "../../src/core/types";
 
 describe("Empilha OpenAPI", () => {
+  test("reutiliza a gramática de rotas e expande parâmetro opcional", () => {
+    const builder = new OpenApiDocumentBuilder();
+    const route = {
+      parameters: [],
+      propertyKey: "find",
+      method: "GET",
+    } as unknown as RegisteredRouteMetadata;
+
+    builder.addRoute("Files", "/files/:id<\\d+>?", route);
+    builder.addRoute("Assets", "/assets/*rest", {
+      ...route,
+      propertyKey: "asset",
+    });
+    const document = builder.build();
+
+    expect(document.paths["/files"].get.parameters).toBeUndefined();
+    expect(document.paths["/files/{id}"].get.parameters).toContainEqual({
+      name: "id",
+      in: "path",
+      required: true,
+      schema: { type: "string", pattern: "\\d+" },
+    });
+    expect(document.paths["/assets/{rest}"].get.parameters).toContainEqual({
+      name: "rest",
+      in: "path",
+      required: true,
+      schema: { type: "string" },
+    });
+    expect(() =>
+      builder.addRoute("Broken", "/files/*rest/tail", route),
+    ).toThrow("Wildcard deve ser o último segmento");
+  });
+
   test("publica todas as respostas declaradas por status", () => {
     const success = t.Object({ id: t.Number() });
     const failure = t.Object({ error: t.String() });
