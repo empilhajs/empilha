@@ -67,6 +67,14 @@ type MatchedRoute = {
   params: Record<string, string>;
 };
 
+function assertStaticPath(path: string, resource: string): string {
+  const normalized = normalizePath(path);
+  if (normalized.includes(":")) {
+    throw new Error(`${resource} não podem usar parâmetros de rota.`);
+  }
+  return normalized;
+}
+
 // Handlers que não declaram nenhuma dependência do request recebem este valor
 // apenas para manter a assinatura do pipeline. Ele evita materializar um
 // ServerRequest novo para cada ping/rota estática.
@@ -538,6 +546,13 @@ export class HttpAdapter {
    */
   handleRequest(request: Request): Response | Promise<Response> {
     const startedAt = this.clock.now();
+    const requestPath = (() => {
+      try {
+        return parseRequestPath(request.url).pathname;
+      } catch {
+        return new URL(request.url).pathname;
+      }
+    })();
     const emitComplete = (response: Response): Response => {
       const requestId =
         response.headers.get("X-Request-Id") ??
@@ -548,20 +563,8 @@ export class HttpAdapter {
         Object.freeze({
           requestId,
           method: request.method,
-          pathname: (() => {
-            try {
-              return parseRequestPath(request.url).pathname;
-            } catch {
-              return new URL(request.url).pathname;
-            }
-          })(),
-          route: (() => {
-            try {
-              return parseRequestPath(request.url).pathname;
-            } catch {
-              return new URL(request.url).pathname;
-            }
-          })(),
+          pathname: requestPath,
+          route: requestPath,
           status: response.status,
           durationMs: Math.max(0, this.clock.now() - startedAt),
         }),
@@ -947,9 +950,7 @@ export class HttpAdapter {
    * Registra uma resposta textual imutável no pipeline comum.
    */
   getText(path: string, body: string, headers?: Record<string, string>): void {
-    if (normalizePath(path).includes(":")) {
-      throw new Error("Respostas estáticas não podem usar parâmetros de rota.");
-    }
+    assertStaticPath(path, "Respostas estáticas");
 
     const handler: ServerHandler = () => this.responses.text(body, headers);
     Object.assign(handler, { stateless: true });
@@ -962,9 +963,7 @@ export class HttpAdapter {
     value: unknown,
     headers?: Record<string, string>,
   ): void {
-    if (normalizePath(path).includes(":")) {
-      throw new Error("Respostas estáticas não podem usar parâmetros de rota.");
-    }
+    assertStaticPath(path, "Respostas estáticas");
 
     const body = serializeJson(value);
     const handler: ServerHandler = () => ({
@@ -1054,9 +1053,7 @@ export class HttpAdapter {
     file: Bun.BunFile,
     headers?: Record<string, string>,
   ): void {
-    if (normalizePath(path).includes(":")) {
-      throw new Error("Arquivos estáticos não podem usar parâmetros de rota.");
-    }
+    assertStaticPath(path, "Arquivos estáticos");
 
     const handler: ServerHandler = () => this.responses.file(file, headers);
     Object.assign(handler, { stateless: true });

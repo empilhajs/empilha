@@ -3,13 +3,12 @@ import {
   ApplicationRuntime,
   type EmpilhaRuntimeConfig,
 } from "../core/empilha";
+import { ApplicationGraphBuilder, type ApplicationGraph } from "./graph";
 import {
-  ApplicationGraphBuilder,
   assertValidApplicationGraph,
   linkApplicationGraphAsync,
-  type ApplicationGraph,
   type LinkedApplication,
-} from "./graph";
+} from "./graph/linker";
 import type { ApplicationProvider, DependencyToken } from "../di";
 import type { ModuleDefinition } from "../modules";
 import { defineModule } from "../modules";
