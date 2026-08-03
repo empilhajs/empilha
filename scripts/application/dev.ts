@@ -91,7 +91,7 @@ let stopping = false;
 let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 let resolveShutdown: (() => void) | undefined;
 
-const stopServer = (signal: "SIGINT" | "SIGTERM") => {
+const stopServer = async (signal: "SIGINT" | "SIGTERM") => {
   if (stopping) return;
 
   stopping = true;
@@ -100,11 +100,14 @@ const stopServer = (signal: "SIGINT" | "SIGTERM") => {
   forceKillTimer = setTimeout(() => {
     server.kill("SIGKILL");
   }, 5_000);
+  await server.exited;
+  if (forceKillTimer !== undefined) clearTimeout(forceKillTimer);
+  forceKillTimer = undefined;
   resolveShutdown?.();
 };
 
-const onSigint = () => stopServer("SIGINT");
-const onSigterm = () => stopServer("SIGTERM");
+const onSigint = () => void stopServer("SIGINT");
+const onSigterm = () => void stopServer("SIGTERM");
 
 process.once("SIGINT", onSigint);
 process.once("SIGTERM", onSigterm);
@@ -117,7 +120,7 @@ async function restartServer(): Promise<void> {
     new Promise<void>((resolve) =>
       setTimeout(() => {
         previous.kill("SIGKILL");
-        resolve();
+        void previous.exited.then(() => resolve());
       }, 5_000),
     ),
   ]);
