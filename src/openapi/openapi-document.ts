@@ -184,6 +184,10 @@ export const OPENAPI_DOCUMENT_PATH = "/openapi.json";
 
 /** Caminho onde a UI do Swagger é servida. */
 export const OPENAPI_UI_PATH = "/docs";
+export const OPENAPI_UI_CSS_PATH = "/docs/swagger-ui.css";
+export const OPENAPI_UI_BUNDLE_PATH = "/docs/swagger-ui-bundle.js";
+export const OPENAPI_UI_PRESET_PATH = "/docs/swagger-ui-standalone-preset.js";
+export const OPENAPI_UI_INIT_PATH = "/docs/swagger-ui-init.js";
 
 /** Retorna o HTML da interface Swagger UI para explorar a API. */
 export function openApiHtml(): string {
@@ -193,22 +197,24 @@ export function openApiHtml(): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>API Documentation</title>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self';">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui.css">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self';">
+    <link rel="stylesheet" href="${OPENAPI_UI_CSS_PATH}">
   </head>
   <body>
     <div id="swagger-ui"></div>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-bundle.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-standalone-preset.js"></script>
-    <script>
-      window.onload = () => SwaggerUIBundle({
-        url: "${OPENAPI_DOCUMENT_PATH}",
-        dom_id: "#swagger-ui",
-        deepLinking: true,
-        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-        layout: "StandaloneLayout"
-      });
-    </script>
+    <script src="${OPENAPI_UI_BUNDLE_PATH}"></script>
+    <script src="${OPENAPI_UI_PRESET_PATH}"></script>
+    <script src="${OPENAPI_UI_INIT_PATH}"></script>
   </body>
 </html>`;
+}
+
+export function openApiInitializer(): string {
+  return `window.onload = () => SwaggerUIBundle({
+  url: "${OPENAPI_DOCUMENT_PATH}",
+  dom_id: "#swagger-ui",
+  deepLinking: true,
+  presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+  layout: "StandaloneLayout"
+});`;
 }

@@ -56,9 +56,6 @@
     },
     "empilha": {
       "optional": true
-    },
-    "jose": {
-      "optional": true
     }
   },
   "engines": {

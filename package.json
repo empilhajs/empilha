@@ -110,7 +110,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.52"
+    "@sinclair/typebox": "^0.34.52",
+    "swagger-ui-dist": "5.32.11"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

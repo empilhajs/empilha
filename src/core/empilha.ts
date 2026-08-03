@@ -38,9 +38,15 @@ export type {
 } from "../application/testing/test-client";
 import {
   OPENAPI_DOCUMENT_PATH,
+  OPENAPI_UI_BUNDLE_PATH,
+  OPENAPI_UI_CSS_PATH,
+  OPENAPI_UI_INIT_PATH,
   OPENAPI_UI_PATH,
+  OPENAPI_UI_PRESET_PATH,
+  getSwaggerUiAssets,
   type OpenApiOptions,
   openApiHtml,
+  openApiInitializer,
 } from "../openapi";
 import { ApplicationContext } from "../application/services";
 import {
@@ -592,6 +598,26 @@ export class ApplicationRuntime {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
       },
+    }));
+    this.http.get(OPENAPI_UI_CSS_PATH, () => ({
+      status: 200,
+      body: getSwaggerUiAssets().css,
+      headers: { "Content-Type": "text/css; charset=utf-8" },
+    }));
+    this.http.get(OPENAPI_UI_BUNDLE_PATH, () => ({
+      status: 200,
+      body: getSwaggerUiAssets().bundle,
+      headers: { "Content-Type": "application/javascript; charset=utf-8" },
+    }));
+    this.http.get(OPENAPI_UI_PRESET_PATH, () => ({
+      status: 200,
+      body: getSwaggerUiAssets().preset,
+      headers: { "Content-Type": "application/javascript; charset=utf-8" },
+    }));
+    this.http.get(OPENAPI_UI_INIT_PATH, () => ({
+      status: 200,
+      body: openApiInitializer(),
+      headers: { "Content-Type": "application/javascript; charset=utf-8" },
     }));
 
     this.openApiRoutesRegistered = true;

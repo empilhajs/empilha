@@ -243,8 +243,28 @@ describe("Empilha OpenAPI", () => {
     expect(docs.status).toBe(200);
     expect(docs.headers.get("content-type")).toContain("text/html");
     const docsHtml = await docs.text();
-    expect(docsHtml).toContain("/openapi.json");
     expect(docsHtml).toContain("swagger-ui-bundle.js");
+    expect(docsHtml).toContain("/docs/swagger-ui.css");
+    expect(docsHtml).toContain("/docs/swagger-ui-init.js");
+    expect(docsHtml).not.toContain("window.onload");
+    expect(docsHtml).not.toContain("cdn.jsdelivr.net");
+
+    const css = await app.test().get("/docs/swagger-ui.css");
+    const bundle = await app.test().get("/docs/swagger-ui-bundle.js");
+    const preset = await app
+      .test()
+      .get("/docs/swagger-ui-standalone-preset.js");
+    const init = await app.test().get("/docs/swagger-ui-init.js");
+    const initBody = await init.text();
+    expect(css.headers.get("content-type")).toContain("text/css");
+    expect(bundle.headers.get("content-type")).toContain("javascript");
+    expect(preset.headers.get("content-type")).toContain("javascript");
+    expect(init.headers.get("content-type")).toContain("javascript");
+    expect(initBody).toContain("SwaggerUIBundle");
+    expect(initBody).toContain("/openapi.json");
+    expect((await css.text()).length).toBeGreaterThan(100_000);
+    expect((await bundle.text()).length).toBeGreaterThan(1_000_000);
+    expect((await preset.text()).length).toBeGreaterThan(200_000);
   });
 
   test("inclui no documento as rotas compiladas do módulo", async () => {
