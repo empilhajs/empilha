@@ -1,7 +1,7 @@
 import type { TSchema } from "@sinclair/typebox";
 import { getOrCreateRoute } from "../core/metadata";
 import { compileValidator } from "./validation";
-import { ValidationError } from "../errors";
+import { convertInputValue } from "../utils/input-conversion";
 
 function convertQueryValue(
   value: unknown,
@@ -12,14 +12,10 @@ function convertQueryValue(
   }
   if (typeof value !== "string") return value;
   if (schema.type === "integer" || schema.type === "number") {
-    if (value === "" || Number.isNaN(Number(value))) {
-      throw new ValidationError([
-        { path: "query", message: "Expected a valid number." },
-      ]);
-    }
-    return Number(value);
+    return convertInputValue(value, "number", "query");
   }
-  if (schema.type === "boolean") return value === "true" || value === "1";
+  if (schema.type === "boolean")
+    return convertInputValue(value, "boolean", "query");
   return value;
 }
 

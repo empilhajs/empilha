@@ -5,7 +5,7 @@ import type {
   RouteRequest,
 } from "../core/types";
 import { requestContext } from "../context";
-import { ValidationError } from "../errors";
+import { convertInputValue } from "../utils/input-conversion";
 import type { DependencyToken } from "../di";
 
 /**
@@ -135,13 +135,11 @@ function convertParameterValue(
   path: string,
 ): unknown {
   if (type === Number) {
-    if (value == null) return undefined;
-    if (value === "" || Number.isNaN(Number(value))) {
-      throw new ValidationError([
-        { path, message: "Expected a valid number." },
-      ]);
-    }
-    return Number(value);
+    return convertInputValue(value, "number", path);
+  }
+
+  if (type === BigInt) {
+    return convertInputValue(value, "bigint", path);
   }
 
   if (type === Boolean) {
@@ -149,11 +147,7 @@ function convertParameterValue(
       return undefined;
     }
 
-    if (typeof value === "boolean") {
-      return value;
-    }
-
-    return value === "true" || value === "1" || value === 1;
+    return convertInputValue(value, "boolean", path);
   }
 
   return value;

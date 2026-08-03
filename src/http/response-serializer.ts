@@ -1,4 +1,6 @@
-import type { TSchema } from "@sinclair/typebox";
+import { Kind, type TSchema } from "@sinclair/typebox";
+import { TypeCompiler } from "@sinclair/typebox/compiler";
+import { ensureBuiltinFormats } from "../schema/formats";
 import { serializeJson } from "../utils/serialize-json";
 
 /**
@@ -18,6 +20,10 @@ type SchemaNode = TSchema & {
   anyOf?: TSchema[];
   oneOf?: TSchema[];
   allOf?: TSchema[];
+  required?: string[];
+  const?: unknown;
+  enum?: unknown[];
+  additionalProperties?: boolean | TSchema;
 };
 
 /**
@@ -158,36 +164,84 @@ function collectObjectProperties(
   return properties;
 }
 
-function matchesSchema(value: unknown, schema: TSchema): boolean {
+/** Compatibilidade para JSON Schema estrutural sem os símbolos do TypeBox. */
+function matchesStructuralSchema(value: unknown, schema: TSchema): boolean {
   const node = schema as SchemaNode;
-  if (node.anyOf) {
-    return node.anyOf.some((item) => matchesSchema(value, item));
-  }
-  if (node.oneOf) {
-    return node.oneOf.filter((item) => matchesSchema(value, item)).length === 1;
-  }
+  if (node.const !== undefined && !Object.is(value, node.const)) return false;
+  if (node.enum && !node.enum.some((item) => Object.is(value, item)))
+    return false;
+  if (
+    node.anyOf &&
+    !node.anyOf.some((item) => matchesStructuralSchema(value, item))
+  )
+    return false;
+  if (
+    node.oneOf &&
+    node.oneOf.filter((item) => matchesStructuralSchema(value, item)).length !==
+      1
+  )
+    return false;
+  if (
+    node.allOf &&
+    !node.allOf.every((item) => matchesStructuralSchema(value, item))
+  )
+    return false;
 
   switch (node.type) {
-    case "undefined":
-      return value === undefined;
     case "null":
       return value === null;
     case "string":
       return typeof value === "string";
     case "number":
+      return typeof value === "number" && Number.isFinite(value);
     case "integer":
-      return typeof value === "number";
+      return typeof value === "number" && Number.isInteger(value);
     case "boolean":
       return typeof value === "boolean";
     case "array":
-      return Array.isArray(value);
-    case "object":
       return (
-        value !== null && typeof value === "object" && !Array.isArray(value)
+        Array.isArray(value) &&
+        (!node.items ||
+          value.every((item) =>
+            matchesStructuralSchema(item, node.items as TSchema),
+          ))
       );
+    case "object": {
+      if (value === null || typeof value !== "object" || Array.isArray(value))
+        return false;
+      const object = value as Record<string, unknown>;
+      const properties = node.properties ?? {};
+      if (node.required?.some((name) => !Object.hasOwn(object, name)))
+        return false;
+      for (const [name, property] of Object.entries(properties)) {
+        if (
+          Object.hasOwn(object, name) &&
+          !matchesStructuralSchema(object[name], property)
+        )
+          return false;
+      }
+      for (const [name, propertyValue] of Object.entries(object)) {
+        if (Object.hasOwn(properties, name)) continue;
+        if (node.additionalProperties === false) return false;
+        if (
+          typeof node.additionalProperties === "object" &&
+          !matchesStructuralSchema(propertyValue, node.additionalProperties)
+        )
+          return false;
+      }
+      return true;
+    }
     default:
       return true;
   }
+}
+
+function compileSchemaMatcher(schema: TSchema): (value: unknown) => boolean {
+  if (Kind in schema) {
+    const validator = TypeCompiler.Compile(schema);
+    return (value) => validator.Check(value);
+  }
+  return (value) => matchesStructuralSchema(value, schema);
 }
 
 function compileUnion(
@@ -197,21 +251,28 @@ function compileUnion(
   if (!schemas?.length) return null;
   const compiled = schemas.map((schema) => compile(schema));
   if (compiled.some((serializer) => !serializer)) return null;
+  ensureBuiltinFormats();
+  const matches = schemas.map(compileSchemaMatcher);
 
   return (value) => {
-    const matches = schemas.flatMap((schema, index) =>
-      matchesSchema(value, schema) ? [index] : [],
+    const matchingIndexes = matches.flatMap((matchesSchema, index) =>
+      matchesSchema(value) ? [index] : [],
     );
     if (mode === "oneOf") {
-      if (matches.length !== 1) {
+      if (matchingIndexes.length !== 1) {
         throw new TypeError(
           "A resposta não corresponde a um único schema oneOf.",
         );
       }
-      return (compiled[matches[0]] as Serializer)(value);
+      return (compiled[matchingIndexes[0]] as Serializer)(value);
     }
-    if (matches.length > 0) return (compiled[matches[0]] as Serializer)(value);
-    throw new TypeError("A resposta não corresponde a nenhum schema anyOf.");
+    if (matchingIndexes.length === 0) {
+      throw new TypeError("A resposta não corresponde a nenhum schema anyOf.");
+    }
+    // anyOf significa "um ou mais". Quando há sobreposição, a primeira
+    // declaração compatível fornece uma escolha determinística sem transformar
+    // um valor válido pelo JSON Schema em erro 500.
+    return (compiled[matchingIndexes[0]] as Serializer)(value);
   };
 }
 

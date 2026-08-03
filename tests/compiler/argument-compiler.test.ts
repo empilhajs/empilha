@@ -100,4 +100,72 @@ describe("argument compiler", () => {
       });
     }
   });
+
+  test("aceita somente números decimais finitos", () => {
+    const compile = (value: unknown) =>
+      compileArgGetters(
+        route([{ index: 0, source: "query", name: "value", type: Number }]),
+      )({
+        params: {},
+        query: { value: value as string },
+        body: undefined,
+        headers: {},
+      });
+
+    expect(compile("5")).toEqual([5]);
+    expect(compile("-1.25")).toEqual([-1.25]);
+    for (const value of [
+      " 5 ",
+      "1.",
+      "0x10",
+      "0b101",
+      "1e5",
+      "NaN",
+      "Infinity",
+    ]) {
+      expect(() => compile(value)).toThrow("Validation failed");
+    }
+    expect(() =>
+      compileArgGetters(
+        route([{ index: 0, source: "query", name: "value", type: Number }]),
+      )({
+        params: {},
+        query: { value: Number.NaN as unknown as string },
+        body: undefined,
+        headers: {},
+      }),
+    ).toThrow("Validation failed");
+  });
+
+  test("rejeita booleano que não possui token válido", () => {
+    const compile = compileArgGetters(
+      route([{ index: 0, source: "query", name: "active", type: Boolean }]),
+    );
+
+    expect(() =>
+      compile({
+        params: {},
+        query: { active: "garbage" },
+        body: undefined,
+        headers: {},
+      }),
+    ).toThrow("Validation failed");
+  });
+
+  test("converte bigint decimal estrito", () => {
+    const compile = (value: string) =>
+      compileArgGetters(
+        route([{ index: 0, source: "query", name: "value", type: BigInt }]),
+      )({
+        params: {},
+        query: { value },
+        body: undefined,
+        headers: {},
+      });
+
+    expect(compile("-9007199254740993")).toEqual([-9007199254740993n]);
+    for (const value of ["", " 1", "1.0", "1e3", "0x10"]) {
+      expect(() => compile(value)).toThrow("Validation failed");
+    }
+  });
 });
