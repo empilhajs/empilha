@@ -124,7 +124,7 @@ class TasksController {
 Gere os artefatos e valide o projeto com:
 
 ```sh
-bun scripts/application/generate-query-types.ts src/queries src/queries/query-artifacts.ts --artifacts
+bun run generate:queries
 bun scripts/application/doctor.ts --strict
 ```
 

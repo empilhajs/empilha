@@ -10,6 +10,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 describe("generate-query-types", () => {
+  test("scaffold expõe o comando de geração documentado", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), "scaffold/package.json"), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+
+    expect(manifest.scripts["generate:queries"]).toContain(
+      "generate-query-types.ts",
+    );
+    expect(readme).toContain("bun run generate:queries");
+  });
   test("gera nomes a partir dos cabeçalhos SQL explícitos", () => {
     const directory = mkdtempSync(join(tmpdir(), "empilha-query-types-"));
     const queries = join(directory, "queries");

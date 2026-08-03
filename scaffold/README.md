@@ -17,3 +17,11 @@ bun run doctor
 ```
 
 Adicione módulos, providers, banco e autenticação conforme a aplicação crescer.
+
+## Queries
+
+Coloque os arquivos SQL em `src/queries` e gere os artefatos tipados com:
+
+```sh
+bun run generate:queries
+```

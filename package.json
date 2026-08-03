@@ -1,6 +1,6 @@
 {
   "name": "empilha",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
   "keywords": [
@@ -78,7 +78,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/index.ts src/application/index.ts src/context/index.ts src/decorators/index.ts src/di/index.ts src/errors/index.ts src/http/index.ts src/openapi/index.ts src/schema/index.ts src/sql/index.ts --outdir dist --target bun --format esm --external @sinclair/typebox --root src && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && bun build src/index.ts src/application/index.ts src/context/index.ts src/decorators/index.ts src/di/index.ts src/errors/index.ts src/http/index.ts src/openapi/index.ts src/schema/index.ts src/sql/index.ts --outdir dist --target bun --format esm --external @sinclair/typebox --root src && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
     "check": "bun run check:code && bun run check:bun && bun run check:budgets && bun run release:check && bun run check:tests && bun run check:packages && bun run build && bun run check:package && bun run release:artifacts",
     "check:package": "bun scripts/release/verify-package.ts --consumer",
