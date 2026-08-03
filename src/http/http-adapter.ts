@@ -49,6 +49,14 @@ import { HttpServer, type NativeRouteValue } from "./http-server";
 import { addRequestId, createRequestId } from "./request-id";
 import { serializeJson } from "../utils/serialize-json";
 import { observableError, type ApplicationEvents } from "../runtime";
+import {
+  registerFileRoute,
+  registerJsonRoute,
+  registerPostJsonRoute,
+  registerQueryTextRoute,
+  registerTextRoute,
+  type ConvenienceRouteContext,
+} from "./convenience-routes";
 export type { ServerResponse } from "./http-response-writer";
 export type {
   ErrorHandler,
@@ -66,14 +74,6 @@ type MatchedRoute = {
   handler: ServerHandler;
   params: Record<string, string>;
 };
-
-function assertStaticPath(path: string, resource: string): string {
-  const normalized = normalizePath(path);
-  if (normalized.includes(":")) {
-    throw new Error(`${resource} não podem usar parâmetros de rota.`);
-  }
-  return normalized;
-}
 
 // Handlers que não declaram nenhuma dependência do request recebem este valor
 // apenas para manter a assinatura do pipeline. Ele evita materializar um
@@ -931,6 +931,17 @@ export class HttpAdapter {
     this.nativeRoutes[path] = { [method]: handler };
   }
 
+  private convenienceRouteContext(): ConvenienceRouteContext {
+    return {
+      responses: this.responses,
+      addRoute: this.addRoute.bind(this),
+      addNativeRoute: this.addNativeRoute.bind(this),
+      maxQueryBytes: this.maxQueryBytes,
+      maxQueryParameters: this.maxQueryParameters,
+      handleDispatchError: this.handleDispatchError.bind(this),
+    };
+  }
+
   /** Registra um handler para GET. */
   get(path: string, handler: ServerHandler): void {
     this.addRoute("GET", path, handler);
@@ -950,11 +961,7 @@ export class HttpAdapter {
    * Registra uma resposta textual imutável no pipeline comum.
    */
   getText(path: string, body: string, headers?: Record<string, string>): void {
-    assertStaticPath(path, "Respostas estáticas");
-
-    const handler: ServerHandler = () => this.responses.text(body, headers);
-    Object.assign(handler, { stateless: true });
-    this.get(path, handler);
+    registerTextRoute(this.convenienceRouteContext(), path, body, headers);
   }
 
   /** Registra JSON imutável com serialização feita uma única vez. */
@@ -963,19 +970,7 @@ export class HttpAdapter {
     value: unknown,
     headers?: Record<string, string>,
   ): void {
-    assertStaticPath(path, "Respostas estáticas");
-
-    const body = serializeJson(value);
-    const handler: ServerHandler = () => ({
-      status: 200,
-      body,
-      headers: {
-        "Content-Type": "application/json",
-        ...headers,
-      },
-    });
-    Object.assign(handler, { stateless: true });
-    this.get(path, handler);
+    registerJsonRoute(this.convenienceRouteContext(), path, value, headers);
   }
 
   /**
@@ -989,38 +984,12 @@ export class HttpAdapter {
     ) => string,
     headers: Record<string, string> = {},
   ): void {
-    const routeHandler: ServerHandler = (request) =>
-      this.responses.text(
-        handler(request.rawParams, request.rawQuery as Record<string, string>),
-        headers,
-      );
-    Object.assign(routeHandler, {
-      needsQuery: true,
-      minimalRequest: true,
-      synchronous: true,
-    });
-    this.addRoute("GET", path, routeHandler);
-    this.addNativeRoute("GET", normalizePath(path), (request) => {
-      try {
-        const parsed = parseRequestPath(request.url);
-        const params =
-          (
-            request as Request & {
-              params?: Record<string, string>;
-            }
-          ).params ?? EMPTY_STRING_RECORD;
-        const query = parseRequestQuery(request.url, parsed.queryStart, {
-          maxBytes: this.maxQueryBytes,
-          maxParameters: this.maxQueryParameters,
-        });
-        return this.responses.text(
-          handler(params, query as Record<string, string>),
-          headers,
-        );
-      } catch (error) {
-        return this.handleDispatchError(error);
-      }
-    });
+    registerQueryTextRoute(
+      this.convenienceRouteContext(),
+      path,
+      handler,
+      headers,
+    );
   }
 
   /**
@@ -1034,17 +1003,12 @@ export class HttpAdapter {
     ) => unknown | Response | Promise<unknown | Response>,
     headers: Record<string, string> = {},
   ): void {
-    const writeResult = (result: unknown | Response): Response =>
-      result instanceof Response
-        ? result
-        : this.responses.json(200, result, headers);
-
-    const routeHandler: ServerHandler = (request) => {
-      const result = handler(request.body);
-      return isPromise(result) ? result.then(writeResult) : writeResult(result);
-    };
-    Object.assign(routeHandler, { needsBody: true, minimalRequest: true });
-    this.addRoute("POST", path, routeHandler);
+    registerPostJsonRoute(
+      this.convenienceRouteContext(),
+      path,
+      handler,
+      headers,
+    );
   }
 
   /** Registra uma resposta de arquivo mantendo streaming e range do Bun. */
@@ -1053,11 +1017,7 @@ export class HttpAdapter {
     file: Bun.BunFile,
     headers?: Record<string, string>,
   ): void {
-    assertStaticPath(path, "Arquivos estáticos");
-
-    const handler: ServerHandler = () => this.responses.file(file, headers);
-    Object.assign(handler, { stateless: true });
-    this.get(path, handler);
+    registerFileRoute(this.convenienceRouteContext(), path, file, headers);
   }
 
   /** Registra um handler para POST. */
