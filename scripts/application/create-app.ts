@@ -31,6 +31,7 @@ fs.cpSync(templateRoot, targetRoot, {
     const relative = path.relative(templateRoot, source);
     return (
       !relative.startsWith("node_modules") &&
+      relative !== "bun.lock" &&
       relative !== "src/queries/query-names.ts" &&
       relative !== ".env"
     );

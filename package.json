@@ -97,6 +97,7 @@
     "benchmark:validators": "bun --expose-gc benchmarks/runtime/validator-profile.ts",
     "check:budgets": "bun scripts/checks/check-budgets.ts",
     "release:check": "bun scripts/release/release.ts",
+    "release:locks": "bun scripts/release/release.ts --refresh-lockfiles",
     "release:artifacts": "bun scripts/release/release-artifacts.ts",
     "release:validate": "bun scripts/release/validate-release-candidate.ts",
     "create:app": "bun scripts/application/create-app.ts",

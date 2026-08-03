@@ -24,6 +24,7 @@ fs.cpSync(templateRoot, targetRoot, {
     return (
       !relative.startsWith("node_modules") &&
       !relative.startsWith("bin") &&
+      relative !== "bun.lock" &&
       relative !== ".git" &&
       relative !== ".npmrc"
     );

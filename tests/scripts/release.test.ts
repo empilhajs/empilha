@@ -16,7 +16,7 @@ describe("release preparation", () => {
         recursive: true,
       });
     cpSync(resolve(source, "package.json"), resolve(root, "package.json"));
-    prepareRelease(root, "0.2.0-rc.1", { regenerateLockfiles: false });
+    prepareRelease(root, "0.2.0-rc.1");
     assertReleaseVersions(root, "0.2.0-rc.1", { checkLockfiles: false });
     const scaffold = JSON.parse(
       readFileSync(resolve(root, "scaffold/package.json"), "utf8"),

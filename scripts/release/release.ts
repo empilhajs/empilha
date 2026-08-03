@@ -65,7 +65,7 @@ export function prepareRelease(
       ),
     );
   }
-  if (options.regenerateLockfiles !== false) regenerateLockfiles(root, version);
+  if (options.regenerateLockfiles === true) regenerateLockfiles(root, version);
 }
 
 /** Recalcula versões, resoluções e integrities com o resolvedor do Bun. */
@@ -73,27 +73,6 @@ export function regenerateLockfiles(root: string, version: string): void {
   for (const directory of LOCKFILE_DIRECTORIES) {
     const lockfile = resolve(root, directory, "bun.lock");
     const before = readFileSync(lockfile, "utf8");
-    const result = Bun.spawnSync(
-      [process.execPath, "install", "--lockfile-only", "--force"],
-      {
-        cwd: resolve(root, directory),
-        env: {
-          ...process.env,
-          BUN_TMPDIR: process.env.BUN_TMPDIR ?? "/tmp",
-          BUN_INSTALL: process.env.BUN_INSTALL ?? "/tmp",
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    if (result.exitCode !== 0) {
-      writeFileSync(lockfile, before);
-      const stderr = new TextDecoder().decode(result.stderr);
-      throw new Error(
-        `Não foi possível regenerar o lockfile de ${directory}: ${stderr.trim()}`,
-      );
-    }
-    const after = readFileSync(lockfile, "utf8");
     const withoutEmpilha = (source: string): string => {
       const lock = Bun.JSON5.parse(source) as {
         workspaces?: Record<string, Record<string, unknown>>;
@@ -119,6 +98,31 @@ export function regenerateLockfiles(root: string, version: string): void {
       delete lock.packages?.empilha;
       return JSON.stringify(lock);
     };
+    // Bun preserva resoluções existentes mesmo com --force. Remover apenas a
+    // entrada do core obriga uma consulta nova ao registry sem destravar o
+    // restante da árvore de dependências.
+    writeFileSync(lockfile, withoutEmpilha(before));
+    const result = Bun.spawnSync(
+      [process.execPath, "install", "--lockfile-only", "--force"],
+      {
+        cwd: resolve(root, directory),
+        env: {
+          ...process.env,
+          BUN_TMPDIR: process.env.BUN_TMPDIR ?? "/tmp",
+          BUN_INSTALL: process.env.BUN_INSTALL ?? "/tmp",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    if (result.exitCode !== 0) {
+      writeFileSync(lockfile, before);
+      const stderr = new TextDecoder().decode(result.stderr);
+      throw new Error(
+        `Não foi possível regenerar o lockfile de ${directory}: ${stderr.trim()}`,
+      );
+    }
+    const after = readFileSync(lockfile, "utf8");
     if (withoutEmpilha(before) !== withoutEmpilha(after)) {
       writeFileSync(lockfile, before);
       throw new Error(
@@ -193,9 +197,20 @@ export function assertReleaseVersions(
 }
 
 const root = resolve(import.meta.dir, "../..");
-const version = process.argv[2] ?? String(readPackage(root).version);
+const releaseArgs = process.argv.slice(2);
+const version =
+  releaseArgs.find((argument) => !argument.startsWith("--")) ??
+  String(readPackage(root).version);
 if (import.meta.main && version) {
-  if (process.argv.includes("--prepare")) prepareRelease(root, version);
-  else assertReleaseVersions(root, version);
+  if (releaseArgs.includes("--prepare")) {
+    prepareRelease(root, version);
+  } else if (releaseArgs.includes("--refresh-lockfiles")) {
+    regenerateLockfiles(root, version);
+    assertReleaseVersions(root, version);
+  } else {
+    assertReleaseVersions(root, version, {
+      checkLockfiles: releaseArgs.includes("--check-lockfiles"),
+    });
+  }
   console.log(`Release ${version} validada.`);
 }
