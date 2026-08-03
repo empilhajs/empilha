@@ -158,6 +158,19 @@ type OwnedInstance = {
   onDispose?: (value: unknown) => void | Promise<void>;
 };
 
+function isAsyncFactory(factory: Function): boolean {
+  return factory.constructor?.name === "AsyncFunction";
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
+}
+
 /**
  * Container hierárquico de dependências com suporte a scopes e disposal.
  *
@@ -180,6 +193,7 @@ export class Container {
   >();
   private readonly ownedInstances: OwnedInstance[] = [];
   private readonly ownedByToken = new Map<DependencyToken, OwnedInstance>();
+  private readonly disposeHooks = new Set<() => void | Promise<void>>();
   private disposed = false;
 
   constructor(
@@ -256,6 +270,12 @@ export class Container {
   createScope(): Container {
     this.assertActive();
     return new Container(this, true);
+  }
+
+  /** Registra uma limpeza vinculada ao ciclo de vida deste container. */
+  addDisposeHook(hook: () => void | Promise<void>): void {
+    this.assertActive();
+    this.disposeHooks.add(hook);
   }
 
   /** Indica se existe provider local ou herdado para um token. */
@@ -450,11 +470,23 @@ export class Container {
 
     const resolver = provider.scope === "singleton" ? owner : this;
     resolver.assertActive();
+    if (provider.useFactory && isAsyncFactory(provider.useFactory)) {
+      throw new TypeError(
+        `O provider "${String(token)}" é assíncrono; use resolveAsync().`,
+      );
+    }
     const value = provider.useClass
       ? resolver.instantiate(provider.useClass, nextStack)
       : provider.useFactory
         ? provider.useFactory(resolver)
         : provider.useValue;
+
+    if (isPromiseLike(value)) {
+      if (value instanceof Promise) void value.catch(() => undefined);
+      throw new TypeError(
+        `O provider "${String(token)}" é assíncrono; use resolveAsync().`,
+      );
+    }
 
     if (provider.scope !== "transient")
       instanceOwner.instances.set(token, value);
@@ -498,10 +530,19 @@ export class Container {
       }
     }
 
+    for (const hook of this.disposeHooks) {
+      try {
+        await hook();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
     this.instances.clear();
     this.pendingInstances.clear();
     this.ownedInstances.length = 0;
     this.ownedByToken.clear();
+    this.disposeHooks.clear();
     if (errors.length > 0) {
       throw new AggregateError(
         errors,
@@ -520,6 +561,7 @@ export class Container {
     if (this.disposed) return true;
     if (
       this.pendingInstances.size > 0 ||
+      this.disposeHooks.size > 0 ||
       this.ownedInstances.some((instance) => instance.onDispose !== undefined)
     ) {
       return false;
@@ -529,6 +571,7 @@ export class Container {
     this.pendingInstances.clear();
     this.ownedInstances.length = 0;
     this.ownedByToken.clear();
+    this.disposeHooks.clear();
     return true;
   }
 

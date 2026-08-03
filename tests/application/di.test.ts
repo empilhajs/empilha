@@ -11,6 +11,35 @@ import { Container } from "../../src/di/index";
 import { testModule } from "../helpers/test-utils";
 
 describe("dependency injection", () => {
+  test("rejeita factory async antes de executá-la e não confunde objetos thenable", async () => {
+    const token = Symbol("async-before-call");
+    let activations = 0;
+    const container = new Container().provide(token, {
+      useFactory: async () => {
+        activations++;
+        return "async";
+      },
+    });
+
+    expect(() => container.resolve(token)).toThrow("use resolveAsync()");
+    expect(activations).toBe(0);
+
+    const thenable = Symbol("thenable-value");
+    const thenKey = ["t", "hen"].join("");
+    const thenValue = Object.defineProperty({ value: 42 }, thenKey, {
+      value: "not a function",
+      enumerable: true,
+    });
+    container.provide(thenable, { useValue: thenValue as never });
+    const resolved = container.resolve<{ value: number }>(thenable);
+    expect(resolved.value).toBe(42);
+
+    const indirect = Symbol("indirect-promise");
+    container.provide(indirect, { useFactory: () => Promise.resolve("async") });
+    expect(() => container.resolve(indirect)).toThrow("use resolveAsync()");
+    await expect(container.resolveAsync(indirect)).resolves.toBe("async");
+  });
+
   test("respeita o escopo declarado em Injectable", async () => {
     let serviceInstances = 0;
 

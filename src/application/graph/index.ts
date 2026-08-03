@@ -146,6 +146,12 @@ function providerDependencies(
   return [];
 }
 
+function hasDeclaredAsyncFactory(provider: ModuleProvider): boolean {
+  if (!isProviderDeclaration(provider) || !("useFactory" in provider))
+    return false;
+  return provider.useFactory.constructor?.name === "AsyncFunction";
+}
+
 function exportedTokens(module: ModuleDefinition): DependencyToken[] {
   const tokens: DependencyToken[] = [];
   const visit = (entry: ModuleExportLike): void => {
@@ -712,19 +718,19 @@ export class ApplicationGraphBuilder {
         current: ModuleDefinition,
         token: DependencyToken,
         visited = new Set<ModuleDefinition>(),
-      ): ModuleProvider | undefined => {
+      ): { owner: ModuleDefinition; provider: ModuleProvider } | undefined => {
         if (visited.has(current)) return undefined;
         visited.add(current);
         const local = current.providers.find(
           (candidate) => providerToken(candidate) === token,
         );
-        if (local !== undefined) return local;
+        if (local !== undefined) return { owner: current, provider: local };
         if (current.controllers.includes(token as ModuleController))
-          return token as ModuleController;
+          return { owner: current, provider: token as ModuleController };
         for (const imported of current.imports) {
           if (!exportedTokens(imported).includes(token)) continue;
-          const provider = findVisibleProvider(imported, token, visited);
-          if (provider !== undefined) return provider;
+          const result = findVisibleProvider(imported, token, visited);
+          if (result !== undefined) return result;
         }
         return undefined;
       };
@@ -734,13 +740,13 @@ export class ApplicationGraphBuilder {
         stack = new Set<DependencyToken>(),
       ): boolean => {
         if (stack.has(token)) return false;
-        const provider = findVisibleProvider(current, token);
-        if (provider === undefined) return false;
+        const resolved = findVisibleProvider(current, token);
+        if (resolved === undefined) return false;
         const nextStack = new Set(stack).add(token);
         return (
-          providerScope(provider) === "request" ||
-          providerDependencies(provider).some((dependency) =>
-            requiresRequest(current, dependency, nextStack),
+          providerScope(resolved.provider) === "request" ||
+          providerDependencies(resolved.provider).some((dependency) =>
+            requiresRequest(resolved.owner, dependency, nextStack),
           )
         );
       };
@@ -771,8 +777,8 @@ export class ApplicationGraphBuilder {
           return;
         }
 
-        const provider = findVisibleProvider(owner, token);
-        if (!provider) {
+        const resolved = findVisibleProvider(owner, token);
+        if (!resolved) {
           const missing = String(
             (token as { description?: string }).description ?? token,
           );
@@ -792,15 +798,10 @@ export class ApplicationGraphBuilder {
         // Providers owned by an imported module are checked when that module
         // is visited. Their private dependencies must be resolved in that
         // module, not against the consumer's visibility boundary.
-        if (
-          !owner.providers.some(
-            (candidate) => providerToken(candidate) === token,
-          )
-        )
-          return;
+        if (resolved.owner !== owner) return;
 
         const nextStack = [...stack, token];
-        for (const dependency of providerDependencies(provider))
+        for (const dependency of providerDependencies(resolved.provider))
           inspectProviderDependencies(owner, dependency, nextStack);
       };
       for (const provider of module.providers) {
@@ -823,6 +824,51 @@ export class ApplicationGraphBuilder {
             module: module.name,
             message: `O provider singleton "${String((providerToken(provider) as { description?: string }).description ?? providerToken(provider))}" depende de "${String((dependency as { description?: string }).description ?? dependency)}", que requer request scope.`,
             hint: "Torne o provider request/transient ou remova a dependência request-scoped do singleton.",
+          });
+        }
+      }
+      const reportedAsyncControllerDependencies = new Set<string>();
+      const findAsyncRequestFactory = (
+        current: ModuleDefinition,
+        token: DependencyToken,
+        stack = new Set<DependencyToken>(),
+      ): { token: DependencyToken; provider: ModuleProvider } | undefined => {
+        if (stack.has(token)) return undefined;
+        const resolved = findVisibleProvider(current, token);
+        if (resolved === undefined) return undefined;
+        if (
+          providerScope(resolved.provider) === "request" &&
+          hasDeclaredAsyncFactory(resolved.provider)
+        )
+          return { token, provider: resolved.provider };
+        const nextStack = new Set(stack).add(token);
+        for (const dependency of providerDependencies(resolved.provider)) {
+          const found = findAsyncRequestFactory(
+            resolved.owner,
+            dependency,
+            nextStack,
+          );
+          if (found !== undefined) return found;
+        }
+        return undefined;
+      };
+      for (const controller of module.controllers) {
+        const dependencies = providerDependencies(controller);
+        if (dependencies.length === 0) continue;
+        if (!requiresRequest(module, controller)) continue;
+        for (const dependency of dependencies) {
+          const found = findAsyncRequestFactory(module, dependency);
+          if (found === undefined) continue;
+          const key = `${module.name}:${controller.name}:${String(found.token)}`;
+          if (reportedAsyncControllerDependencies.has(key)) continue;
+          reportedAsyncControllerDependencies.add(key);
+          diagnostics.push({
+            code: "E_ASYNC_REQUEST_FACTORY",
+            severity: "error",
+            module: module.name,
+            subject: { module: module.name, controller: controller.name },
+            message: `O controller request-scoped "${controller.name}" depende da factory assíncrona request-scoped "${String((found.token as { description?: string }).description ?? found.token)}", que não pode ser resolvida de forma síncrona por controllers.`,
+            hint: "Use uma factory síncrona, torne o provider singleton (se for seguro) ou resolva-o explicitamente com resolveAsync() fora do controller.",
           });
         }
       }
@@ -1070,16 +1116,34 @@ function linkGraph(
       const imported = runtimes.get(importedName);
       const importedDefinition = byName.get(importedName);
       if (!imported || !importedDefinition) continue;
+      const requestScopes = new WeakMap<Container, Container>();
       for (const token of moduleExports(
         importedDefinition.definition,
         byName,
       )) {
         if (ownTokens.has(token)) continue;
+        const importedScope = imported.container.scopeOf(token) ?? "singleton";
         container.provide(token, {
-          useFactory: () =>
-            asyncFactories
-              ? imported.resolveAsync(token)
-              : imported.resolve(token),
+          useFactory: (scope) => {
+            if (importedScope !== "request") {
+              return asyncFactories
+                ? imported.resolveAsync(token)
+                : imported.resolve(token);
+            }
+            let sourceScope = requestScopes.get(scope);
+            if (!sourceScope) {
+              sourceScope = imported.container.createScope();
+              requestScopes.set(scope, sourceScope);
+              const requestScope = sourceScope;
+              scope.addDisposeHook(async () => {
+                await requestScope.dispose();
+              });
+            }
+            return asyncFactories
+              ? sourceScope.resolveAsync(token)
+              : sourceScope.resolve(token);
+          },
+          scope: importedScope,
         });
       }
     }

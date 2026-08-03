@@ -13,6 +13,7 @@ import {
   Catch,
   Controller,
   Get,
+  Inject,
   Roles,
   Result,
   Returns,
@@ -524,6 +525,46 @@ describe("application graph", () => {
     expect(() => assertValidApplicationGraph(graph)).toThrow("E_SCOPE_INVALID");
   });
 
+  test("diagnostica factory assíncrona request-scoped injetada em controller", () => {
+    const requestService = createToken<{ value: string }>(
+      "request/async-service",
+    );
+
+    @Controller("/async")
+    class AsyncController {
+      constructor(
+        @Inject(requestService) readonly service: { value: string },
+      ) {}
+    }
+
+    const graph = new ApplicationGraphBuilder().build(
+      defineModule({
+        name: "async-controller",
+        controllers: [AsyncController],
+        providers: [
+          {
+            provide: requestService,
+            scope: "request",
+            useFactory: async () => ({ value: "ok" }),
+            inject: [],
+          },
+        ],
+      }),
+    );
+
+    expect(graph.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "E_ASYNC_REQUEST_FACTORY",
+        module: "async-controller",
+        subject: { module: "async-controller", controller: "AsyncController" },
+        hint: expect.stringContaining("factory síncrona"),
+      }),
+    );
+    expect(() => assertValidApplicationGraph(graph)).toThrow(
+      "E_ASYNC_REQUEST_FACTORY",
+    );
+  });
+
   test("diagnostica dependência ausente e ciclo de providers antes do link", () => {
     const missing = createToken<string>("missing/dependency");
     const first = createToken<string>("cycle/first");
@@ -619,6 +660,131 @@ describe("application graph", () => {
       "Nenhum provider registrado",
     );
     expect(linked.modules.get("shared")?.resolve(secret)).toBe("private");
+    await linked.close();
+  });
+
+  test("descarta provider request-scoped importado ao finalizar a request", async () => {
+    const token = createToken<{ id: number }>("imported/request");
+    let disposed = 0;
+    const source = defineModule({
+      name: "source-request",
+      providers: [
+        {
+          provide: token,
+          scope: "request",
+          useFactory: () => ({ id: Math.random() }),
+          onDispose: () => {
+            disposed++;
+          },
+          inject: [],
+        },
+      ],
+      exports: [token],
+    });
+    const graph = new ApplicationGraphBuilder().build(
+      defineModule({ name: "consumer-request", imports: [source] }),
+    );
+    const linked = linkApplicationGraph(graph);
+    const requestScope = linked.root.container.createScope();
+
+    expect(requestScope.resolve(token)).toEqual(
+      expect.objectContaining({ id: expect.any(Number) }),
+    );
+    await requestScope.dispose();
+    expect(disposed).toBe(1);
+    await linked.close();
+  });
+
+  test("resolve providers request-scoped de múltiplos módulos no mesmo request", async () => {
+    const first = createToken<{ origin: string }>("imported/request/first");
+    const second = createToken<{ origin: string }>("imported/request/second");
+    const firstModule = defineModule({
+      name: "source-request-first",
+      providers: [
+        {
+          provide: first,
+          scope: "request",
+          useFactory: () => ({ origin: "first" }),
+          inject: [],
+        },
+      ],
+      exports: [first],
+    });
+    const secondModule = defineModule({
+      name: "source-request-second",
+      providers: [
+        {
+          provide: second,
+          scope: "request",
+          useFactory: () => ({ origin: "second" }),
+          inject: [],
+        },
+      ],
+      exports: [second],
+    });
+    const graph = new ApplicationGraphBuilder().build(
+      defineModule({
+        name: "consumer-request-many",
+        imports: [firstModule, secondModule],
+      }),
+    );
+    const linked = linkApplicationGraph(graph);
+    const requestScope = linked.root.container.createScope();
+
+    expect(requestScope.resolve(first)).toEqual({ origin: "first" });
+    expect(requestScope.resolve(second)).toEqual({ origin: "second" });
+    await requestScope.dispose();
+    await linked.close();
+  });
+
+  test("preserva singleton, transient e request em imports concorrentes", async () => {
+    const singleton = createToken<object>("imported/singleton");
+    const transient = createToken<object>("imported/transient");
+    const request = createToken<object>("imported/request/concurrent");
+    let disposedRequests = 0;
+    const source = defineModule({
+      name: "source-all-scopes",
+      providers: [
+        { provide: singleton, useFactory: () => ({}), inject: [] },
+        {
+          provide: transient,
+          scope: "transient",
+          useFactory: () => ({}),
+          inject: [],
+        },
+        {
+          provide: request,
+          scope: "request",
+          useFactory: () => ({}),
+          onDispose: () => {
+            disposedRequests++;
+          },
+          inject: [],
+        },
+      ],
+      exports: [singleton, transient, request],
+    });
+    const linked = linkApplicationGraph(
+      new ApplicationGraphBuilder().build(
+        defineModule({ name: "consumer-all-scopes", imports: [source] }),
+      ),
+    );
+    const firstScope = linked.root.container.createScope();
+    const secondScope = linked.root.container.createScope();
+    const [firstRequest, secondRequest] = await Promise.all([
+      Promise.resolve(firstScope.resolve(request)),
+      Promise.resolve(secondScope.resolve(request)),
+    ]);
+
+    expect(firstScope.resolve(singleton)).toBe(secondScope.resolve(singleton));
+    expect(firstScope.resolve(transient)).not.toBe(
+      firstScope.resolve(transient),
+    );
+    expect(firstScope.resolve(request)).toBe(firstRequest);
+    expect(secondRequest).not.toBe(firstRequest);
+
+    await Promise.all([firstScope.dispose(), secondScope.dispose()]);
+    expect(disposedRequests).toBe(2);
     await linked.close();
   });
 });
