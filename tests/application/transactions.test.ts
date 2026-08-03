@@ -8,8 +8,32 @@ import {
   requestContext,
 } from "../../src";
 import { testModule, testPostgresPlugin } from "../helpers/test-utils";
+import { PostgresExecutor } from "../../src/sql";
 
 describe("Empilha transactions", () => {
+  test("descarta e libera o client exatamente uma vez quando rollback falha", async () => {
+    const releases: boolean[] = [];
+    const executor = new PostgresExecutor();
+    executor.setRunner({
+      connect: async () => ({
+        query: async (sql: string) => {
+          if (sql === "ROLLBACK") throw new Error("rollback");
+          return { rows: [] };
+        },
+        release: (destroy = false) => releases.push(destroy),
+      }),
+      query: async () => ({ rows: [] }),
+    });
+
+    await expect(
+      executor.transaction("write", async () => {
+        throw new Error("work");
+      }),
+    ).rejects.toThrow("Falha ao desfazer");
+
+    expect(releases).toEqual([true]);
+  });
+
   function runner(fail = false) {
     const calls: string[] = [];
 

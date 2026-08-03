@@ -109,7 +109,7 @@ function createCancellablePool(pool: Pool) {
           params?: unknown[],
           options?: QueryExecutionOptions,
         ) => queryWithCancellation(client, sql, params, options),
-        release: () => client.release(),
+        release: (destroy = false) => client.release(destroy),
       };
     },
   });
@@ -140,7 +140,7 @@ export function postgres(options: PostgresPluginOptions): PostgresPlugin {
 
   return defineDeclarativePlugin({
     name: "@empilha/pg",
-    version: "0.2.0",
+    version: "0.2.1",
     provides: ["postgres/client", "postgres/query-runner"],
     register(context) {
       const runner = postgresRunner(cancellablePool);

@@ -22,7 +22,7 @@ export type QueryClient = {
     options?: QueryExecutionOptions,
   ): Promise<QueryResult>;
 
-  release(): void;
+  release(destroy?: boolean): void;
 
   /** Caminho opcional específico do driver que respeita o AbortSignal. */
   queryWithOptions?(
@@ -101,7 +101,7 @@ export function postgresRunner(pool: PostgresPool): PostgresQueryRunner {
           ? client.queryWithOptions(sql, params, options)
           : queryWithoutCancellation(() => client.query(sql, params), options),
       queryWithOptions: client.queryWithOptions,
-      release: () => client.release(),
+      release: (destroy = false) => client.release(destroy),
     };
   };
 
@@ -215,6 +215,12 @@ export class PostgresExecutor {
 
     const client = await this.acquireClient(signal);
     let transactionStarted = false;
+    let released = false;
+    const release = (destroy = false): void => {
+      if (released) return;
+      released = true;
+      client.release(destroy);
+    };
 
     try {
       await this.runOperation(
@@ -242,18 +248,33 @@ export class PostgresExecutor {
     } catch (error) {
       if (transactionStarted) {
         try {
-          await this.runOperation(
-            (options) => client.query("ROLLBACK", undefined, options),
-            signal,
+          // A limpeza não pode reutilizar o sinal abortado da operação.
+          const cleanupTimeout = this.timeoutMs ?? 5_000;
+          const cleanupSignal = AbortSignal.timeout(cleanupTimeout);
+          await withTimeout(
+            client.query("ROLLBACK", undefined, { signal: cleanupSignal }),
+            cleanupTimeout,
+            () => {
+              throw new Error("Timeout ao limpar a transação PostgreSQL.", {
+                cause: error,
+              });
+            },
           );
-        } catch {
-          // Preserva o erro original.
+        } catch (rollbackError) {
+          release(true);
+          throw Object.assign(
+            new AggregateError(
+              [error, rollbackError],
+              "Falha ao desfazer a transação PostgreSQL; conexão descartada.",
+            ),
+            { cause: rollbackError },
+          );
         }
       }
 
       throw error;
     } finally {
-      client.release();
+      release();
     }
   }
 
