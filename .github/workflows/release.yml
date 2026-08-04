@@ -33,7 +33,13 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - name: Publish core with provenance
-        run: npm publish --provenance --access public --tag "$NPM_TAG"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "empilha@${version}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "empilha@${version} já está publicado; continuando."
+          else
+            npm publish --provenance --access public --tag "$NPM_TAG"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
@@ -41,7 +47,14 @@ jobs:
         run: |
           git fetch origin main
           git checkout -B release-lockfiles origin/main
-          bun run release:locks
+          for attempt in 1 2 3 4 5; do
+            if bun run release:locks; then
+              exit 0
+            fi
+            echo "Registry ainda não refletiu o core; nova tentativa em 10s (tentativa ${attempt}/5)."
+            sleep 10
+          done
+          exit 1
       - name: Persist synchronized lockfiles
         run: |
           git config user.name "github-actions[bot]"
@@ -55,19 +68,37 @@ jobs:
         run: bun run release:validate
       - name: Publish JWT with provenance
         working-directory: packages/jwt
-        run: npm publish --provenance --access public --tag "$NPM_TAG"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@empilha/jwt@${version}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@empilha/jwt@${version} já está publicado; continuando."
+          else
+            npm publish --provenance --access public --tag "$NPM_TAG"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
       - name: Publish PostgreSQL with provenance
         working-directory: packages/pg
-        run: npm publish --provenance --access public --tag "$NPM_TAG"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@empilha/pg@${version}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@empilha/pg@${version} já está publicado; continuando."
+          else
+            npm publish --provenance --access public --tag "$NPM_TAG"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
       - name: Publish scaffold with provenance
         working-directory: scaffold
-        run: npm publish --provenance --access public --tag "$NPM_TAG"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "create-empilha@${version}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "create-empilha@${version} já está publicado; continuando."
+          else
+            npm publish --provenance --access public --tag "$NPM_TAG"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
