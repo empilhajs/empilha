@@ -38,7 +38,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
       - name: Regenerate lockfiles after publishing core
-        run: bun run release:locks
+        run: |
+          git fetch origin main
+          git checkout -B release-lockfiles origin/main
+          bun run release:locks
       - name: Persist synchronized lockfiles
         run: |
           git config user.name "github-actions[bot]"
