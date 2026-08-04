@@ -1,6 +1,6 @@
 {
   "name": "create-empilha",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": false,
   "description": "Gerador de projetos para o Empilha.",
   "bin": {
@@ -20,7 +20,7 @@
     "check": "bun run typecheck && bun run test"
   },
   "dependencies": {
-    "empilha": "^0.2.1"
+    "empilha": "^0.2.2"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

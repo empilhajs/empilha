@@ -202,6 +202,9 @@ const version =
   releaseArgs.find((argument) => !argument.startsWith("--")) ??
   String(readPackage(root).version);
 if (import.meta.main && version) {
+  const skipLockfiles =
+    releaseArgs.includes("--skip-lockfiles") ||
+    process.env.EMPILHA_RELEASE_SKIP_LOCKFILES === "1";
   if (releaseArgs.includes("--prepare")) {
     prepareRelease(root, version);
   } else if (releaseArgs.includes("--refresh-lockfiles")) {
@@ -209,7 +212,7 @@ if (import.meta.main && version) {
     assertReleaseVersions(root, version);
   } else {
     assertReleaseVersions(root, version, {
-      checkLockfiles: releaseArgs.includes("--check-lockfiles"),
+      checkLockfiles: !skipLockfiles,
     });
   }
   console.log(`Release ${version} validada.`);

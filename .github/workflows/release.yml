@@ -21,8 +21,12 @@ jobs:
         run: bun scripts/release/release.ts "${GITHUB_REF_NAME#v}" --prepare
       - run: bun run build
       - run: bun scripts/tools/link-local-core.ts
-      - run: bun run check
-      - run: bun run release:validate
+      # O core ainda não existe no registry neste ponto. Os lockfiles das
+      # integrações serão regenerados depois que o core for publicado.
+      - name: Validate release before publishing core
+        run: bun run check
+        env:
+          EMPILHA_RELEASE_SKIP_LOCKFILES: "1"
       - name: Configure npm provenance
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -33,6 +37,19 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+      - name: Regenerate lockfiles after publishing core
+        run: bun run release:locks
+      - name: Persist synchronized lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/jwt/bun.lock packages/pg/bun.lock scaffold/bun.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync release ${GITHUB_REF_NAME#v} lockfiles [skip ci]"
+            git push origin HEAD:main
+          fi
+      - name: Validate synchronized release
+        run: bun run release:validate
       - name: Publish JWT with provenance
         working-directory: packages/jwt
         run: npm publish --provenance --access public --tag "$NPM_TAG"
