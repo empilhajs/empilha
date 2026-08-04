@@ -73,6 +73,10 @@ export function regenerateLockfiles(root: string, version: string): void {
   for (const directory of LOCKFILE_DIRECTORIES) {
     const lockfile = resolve(root, directory, "bun.lock");
     const before = readFileSync(lockfile, "utf8");
+    const beforeLock = Bun.JSON5.parse(before) as {
+      packages?: Record<string, unknown>;
+    };
+    const beforePackages = new Set(Object.keys(beforeLock.packages ?? {}));
     const withoutEmpilha = (source: string): string => {
       const lock = Bun.JSON5.parse(source) as {
         workspaces?: Record<string, Record<string, unknown>>;
@@ -89,13 +93,33 @@ export function regenerateLockfiles(root: string, version: string): void {
           | undefined;
         if (entries) delete entries.empilha;
       }
-      const optionalPeers = workspace?.optionalPeers as string[] | undefined;
-      if (optionalPeers) {
-        workspace!.optionalPeers = optionalPeers.filter(
-          (peer) => peer !== "empilha",
-        );
+      // Bun pode recalcular optionalPeers quando uma peer dependency passa a
+      // vir do core. Esse campo não representa uma resolução independente.
+      if (workspace) delete workspace.optionalPeers;
+
+      // A nova versão do core pode introduzir dependências transitivas novas
+      // (por exemplo, os assets do Swagger). Elas pertencem à atualização de
+      // empilha e não devem ser classificadas como uma mudança independente.
+      const relatedPackages = new Set(["empilha"]);
+      const pending = ["empilha"];
+      while (pending.length > 0) {
+        const packageName = pending.pop()!;
+        const entry = lock.packages?.[packageName] as
+          | [string, string, { dependencies?: Record<string, string> }]
+          | undefined;
+        for (const dependency of Object.keys(entry?.[2]?.dependencies ?? {})) {
+          if (
+            !beforePackages.has(dependency) &&
+            lock.packages?.[dependency] &&
+            !relatedPackages.has(dependency)
+          ) {
+            relatedPackages.add(dependency);
+            pending.push(dependency);
+          }
+        }
       }
-      delete lock.packages?.empilha;
+      for (const packageName of relatedPackages)
+        delete lock.packages?.[packageName];
       return JSON.stringify(lock);
     };
     // Bun preserva resoluções existentes mesmo com --force. Remover apenas a
