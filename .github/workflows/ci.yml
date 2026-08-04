@@ -38,7 +38,7 @@ jobs:
         env:
           # O commit de preparação atualiza os manifests antes de o release
           # publicar o core e regenerar os lockfiles das integrações.
-          EMPILHA_RELEASE_SKIP_LOCKFILES: ${{ (startsWith(github.event.head_commit.message, 'chore: prepare release ') || startsWith(github.event.head_commit.message, 'ci: allow release preparation lockfiles')) && '1' || '0' }}
+          EMPILHA_RELEASE_SKIP_LOCKFILES: ${{ (startsWith(github.event.head_commit.message, 'chore: prepare release ') || startsWith(github.event.head_commit.message, 'ci: allow release preparation lockfiles') || startsWith(github.event.head_commit.message, 'ci: update release lockfiles from main')) && '1' || '0' }}
       - name: Smoke test migrations on PostgreSQL
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/empilha_ci
