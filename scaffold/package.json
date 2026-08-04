@@ -3,6 +3,14 @@
   "version": "0.2.2",
   "private": false,
   "description": "Gerador de projetos para o Empilha.",
+  "homepage": "https://github.com/empilhajs/empilha#readme",
+  "bugs": {
+    "url": "https://github.com/empilhajs/empilha/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/empilhajs/empilha.git"
+  },
   "bin": {
     "create-empilha": "bin/create-empilha.ts"
   },
