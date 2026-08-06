@@ -8,6 +8,7 @@ import {
   t,
 } from "../../src";
 import { HttpError, NotFoundError } from "../../src/errors/index";
+import { observableError } from "../../src/runtime/index";
 import { testModule } from "../helpers/test-utils";
 
 describe("Empilha errors", () => {
@@ -74,6 +75,16 @@ describe("Empilha errors", () => {
       type: "about:blank",
       title: "Internal server error",
       status: 500,
+    });
+  });
+
+  test("preserva códigos estruturados dos erros observáveis", async () => {
+    const error = new NotFoundError("missing");
+    expect(error.code).toBe("NOT_FOUND");
+    expect(observableError(error)).toEqual({
+      name: "NotFoundError",
+      status: 404,
+      code: "NOT_FOUND",
     });
   });
 

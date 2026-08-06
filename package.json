@@ -1,6 +1,6 @@
 {
   "name": "empilha",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
   "keywords": [
@@ -89,6 +89,7 @@
     "benchmark:register": "for n in 25 1000 10000; do bun --expose-gc benchmarks/runtime/register.ts $n; done",
     "benchmark:baseline": "bun --expose-gc benchmarks/runtime/baseline.ts",
     "benchmark:path": "bun benchmarks/runtime/path.ts",
+    "benchmark:routes": "bun benchmarks/runtime/route-profile.ts",
     "benchmark:request": "bun --expose-gc benchmarks/runtime/request-profile.ts",
     "benchmark:build": "bun benchmarks/build/build-profile.ts",
     "benchmark:bundle": "bun benchmarks/build/bundle-smoke.ts",
@@ -106,7 +107,7 @@
     "format": "oxfmt src tests scripts scaffold benchmarks docs README.md package.json tsconfig.json tsconfig.build.json .oxfmtrc.json .oxlintrc.json",
     "format:check": "bun run format --check",
     "lint": "oxlint src tests scripts scaffold benchmarks --deny-warnings",
-    "test": "bun test tests/**/*.test.ts",
+    "test": "NODE_ENV=test bun test --max-concurrency=1 tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

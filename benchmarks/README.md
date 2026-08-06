@@ -37,10 +37,13 @@ verificados por:
 bun run check:budgets
 ```
 
+A referência da release está em [`baselines/0.2.3.json`](./baselines/0.2.3.json).
+
 ## Perfis de runtime
 
 ```sh
 bun benchmarks/runtime/path.ts
+bun benchmarks/runtime/route-profile.ts
 bun --expose-gc benchmarks/runtime/register.ts 1000
 bun benchmarks/runtime/register-profile.ts 10000
 bun --expose-gc benchmarks/runtime/request-profile.ts
@@ -71,6 +74,7 @@ Os principais benchmarks também estão disponíveis no `package.json`:
 ```sh
 bun run benchmark:baseline
 bun run benchmark:path
+bun run benchmark:routes
 bun run benchmark:request
 bun run benchmark:build
 bun run benchmark:bundle

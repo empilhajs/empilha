@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Container, HttpAdapter, requestContext } from "../../src";
 import { JsonBodyReader } from "../../src/http";
 import { ApplicationEvents } from "../../src/runtime";
-import { request } from "../helpers/test-utils";
+import { request, testPort } from "../helpers/test-utils";
 
 function nativeResponseHeaders(response: Response, name: string): string[] {
   const headers = response.headers as Headers & {
@@ -148,7 +148,7 @@ describe("HttpAdapter", () => {
     native.setHandlerTimeout(null);
     native.setRequestIdEnabled(false);
     native.get("/request-id", () => ({ status: 200, body: "ok" }));
-    await native.listen(0);
+    await native.listen(testPort());
     try {
       expect(
         (await fetch(`${native.url}request-id`)).headers.get("x-request-id"),
@@ -168,7 +168,7 @@ describe("HttpAdapter", () => {
       (params, query) => `${params.id} ${query.name}`,
     );
 
-    await adapter.listen(0);
+    await adapter.listen(testPort());
     try {
       const response = await fetch(`${adapter.url}native-params/42?name=bun`);
       expect(await response.text()).toBe("42 bun");
@@ -565,7 +565,7 @@ describe("HttpAdapter", () => {
       return { status: 200, body: "ok" };
     });
 
-    await adapter.listen(0);
+    await adapter.listen(testPort());
     const responsePromise = fetch(`${adapter.url}native`);
     await handlerStarted;
 
@@ -628,7 +628,7 @@ describe("HttpAdapter", () => {
         headers: { Origin: "https://client.example" },
       }),
     );
-    await adapter.listen(0);
+    await adapter.listen(testPort());
     try {
       const server = await fetch(`${adapter.url}cors-native`, {
         headers: { Origin: "https://client.example" },
@@ -690,7 +690,7 @@ describe("HttpAdapter", () => {
         contentType: direct.headers.get("content-type"),
         body: await direct.text(),
       };
-      await adapter.listen(0);
+      await adapter.listen(testPort());
       try {
         const server = await fetch(new URL(pathname, adapter.url!), init);
         const serverSnapshot = {

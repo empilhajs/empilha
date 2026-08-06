@@ -27,6 +27,13 @@ export function expectHeader(
 
 let testModuleSequence = 0;
 let testPluginSequence = 0;
+let testPortSequence = 0;
+
+/** Fornece portas distintas quando Bun não consegue reutilizar `listen(0)` em testes concorrentes. */
+export function testPort(): number {
+  testPortSequence++;
+  return 30_000 + (((process.pid % 500) * 20 + testPortSequence) % 20_000);
+}
 
 export function testModule(
   controllers: readonly ModuleController[],

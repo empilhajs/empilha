@@ -140,7 +140,7 @@ export function postgres(options: PostgresPluginOptions): PostgresPlugin {
 
   return defineDeclarativePlugin({
     name: "@empilha/pg",
-    version: "0.2.2",
+    version: "0.2.3",
     provides: ["postgres/client", "postgres/query-runner"],
     register(context) {
       const runner = postgresRunner(cancellablePool);

@@ -1,3 +1,21 @@
+/** Códigos estáveis para classificação de erros do framework. */
+export type FrameworkErrorCode =
+  | "HTTP_ERROR"
+  | "NOT_FOUND"
+  | "VALIDATION_ERROR";
+
+/** Erro base com código estável para logs e observabilidade. */
+export class FrameworkError extends Error {
+  constructor(
+    public readonly code: FrameworkErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
 /**
  * Erro associado a um status HTTP entre 400 e 599.
  *
@@ -7,18 +25,18 @@
  * @example
  * throw new HttpError(409, "Usuário já existe")
  */
-export class HttpError extends Error {
+export class HttpError extends FrameworkError {
   constructor(
     public readonly status: number,
     message: string,
     options?: ErrorOptions,
+    code: FrameworkErrorCode = "HTTP_ERROR",
   ) {
     if (!Number.isInteger(status) || status < 400 || status > 599) {
       throw new RangeError(`Status HTTP de erro inválido: ${status}`);
     }
 
-    super(message, options);
-    this.name = new.target.name;
+    super(code, message, options);
   }
 }
 
@@ -35,7 +53,7 @@ export type ValidationIssue = {
  */
 export class ValidationError extends HttpError {
   constructor(public readonly errors: ValidationIssue[]) {
-    super(400, "Validation failed");
+    super(400, "Validation failed", undefined, "VALIDATION_ERROR");
   }
 }
 
@@ -48,6 +66,6 @@ export class ValidationError extends HttpError {
  */
 export class NotFoundError extends HttpError {
   constructor(message = "Recurso não encontrado", options?: ErrorOptions) {
-    super(404, message, options);
+    super(404, message, options, "NOT_FOUND");
   }
 }

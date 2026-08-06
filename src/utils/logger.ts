@@ -10,9 +10,16 @@ const consoleLogger: Logger = {
   error: (details, message) => console.error(message ?? "", details),
 };
 
+const silentLogger: Logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
 /** Logger configurável por aplicação, com console como fallback. */
 export class ApplicationLogger implements Logger {
-  private target: Logger = consoleLogger;
+  private target: Logger =
+    process.env.NODE_ENV === "test" ? silentLogger : consoleLogger;
 
   configure(logger: Logger): void {
     this.target = logger;

@@ -6,7 +6,7 @@ import type {
 import type { MiddlewareFn } from "../http/http-adapter";
 
 type MethodKey = string | symbol;
-type ErrorConstructor = new (...args: any[]) => Error;
+type ErrorConstructor = abstract new (...args: never[]) => Error;
 
 type Metadata = {
   path?: string;

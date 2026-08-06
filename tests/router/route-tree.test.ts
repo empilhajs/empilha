@@ -29,6 +29,7 @@ describe("RouteTree", () => {
     router.insert("GET", "/files/new", () => "static");
 
     expect(router.find("GET", "/files/new")?.handler()).toBe("static");
+    expect(router.find("GET", "/files/new")?.path).toBe("/files/new");
   });
 
   test("faz backtracking entre rota estática e parametrizada", () => {
@@ -41,6 +42,7 @@ describe("RouteTree", () => {
     expect(router.find("GET", "/files/new")?.params).toEqual({
       id: "new",
     });
+    expect(router.find("GET", "/files/new")?.path).toBe("/files/:id");
 
     expect(router.find("GET", "/files/new/edit")?.params).toEqual({});
   });
@@ -132,6 +134,9 @@ describe("RouteTree", () => {
     });
     expect(router.find("GET", "/users")?.handler).toBe(optional);
     expect(router.find("GET", "/orders/42")?.handler).toBe(numeric);
+    expect(router.find("GET", "/assets/css/app.css")?.path).toBe(
+      "/assets/*path",
+    );
     expect(router.find("GET", "/orders/abc")).toBeNull();
   });
 
@@ -204,5 +209,20 @@ describe("RouteTree", () => {
     router.insert("POST", "/users", () => "post");
 
     expect(router.allowedMethods("/users")).toEqual(["GET", "HEAD", "POST"]);
+  });
+
+  test("lista métodos permitidos em parâmetros e padrões", () => {
+    const router = new RouteTree();
+    router.insert("GET", "/orders/:id", () => "get");
+    router.insert("DELETE", "/orders/:id", () => "delete");
+    router.insert("PATCH", "/assets/*path", () => "patch");
+
+    expect(router.allowedMethods("/orders/42")).toEqual([
+      "GET",
+      "HEAD",
+      "DELETE",
+    ]);
+    expect(router.allowedMethods("/assets/css/app.css")).toEqual(["PATCH"]);
+    expect(router.allowedMethods("/unknown")).toEqual([]);
   });
 });

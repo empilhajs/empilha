@@ -9,7 +9,7 @@ import {
   Produces,
   type RequestScope,
 } from "../../src";
-import { testModule } from "../helpers/test-utils";
+import { testModule, testPort } from "../helpers/test-utils";
 
 describe("Empilha lifecycle", () => {
   test("createApplication ativa o módulo uma vez e bloqueia mudanças estruturais tardias", async () => {
@@ -62,11 +62,13 @@ describe("Empilha lifecycle", () => {
       },
     });
 
-    await app.listen(0);
-    expect(started).toBe(true);
-    expect(() => app.onStart(() => {})).toThrow("antes de app.listen");
-
-    await app.close();
+    try {
+      await app.listen(testPort());
+      expect(started).toBe(true);
+      expect(() => app.onStart(() => {})).toThrow("antes de app.listen");
+    } finally {
+      await app.close();
+    }
   });
 
   test("rejeita hook de fechamento depois que a aplicação encerra", async () => {
@@ -92,7 +94,7 @@ describe("Empilha lifecycle", () => {
     });
 
     try {
-      await app.listen(0);
+      await app.listen(testPort());
     } catch (error) {
       if (
         (error as { code?: string }).code === "EADDRINUSE" ||
@@ -328,7 +330,7 @@ describe("Empilha lifecycle", () => {
     });
 
     try {
-      await app.listen(0);
+      await app.listen(testPort());
       const url = new URL("/native-limit", app.url!);
 
       const first = fetch(url);

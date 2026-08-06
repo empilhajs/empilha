@@ -72,6 +72,69 @@ describe("createApplication", () => {
     await app.close();
   });
 
+  test("publica pathname concreto e template da rota", async () => {
+    const app = await createApplication(
+      defineModule({
+        name: "route-events",
+        controllers: [EligibilityController],
+      }),
+    );
+    const events: Array<{ pathname: string; route: string }> = [];
+    app.events.on("request.completed", (event) => {
+      events.push({ pathname: event.pathname, route: event.route });
+    });
+
+    expect(
+      (await app.fetch(new Request("http://test/eligibility/param/42"))).status,
+    ).toBe(200);
+    expect(events[0]).toEqual({
+      pathname: "/eligibility/param/42",
+      route: "/eligibility/param/:id",
+    });
+    await app.close();
+  });
+
+  test("usa pathname como fallback de rota em 404 e 405", async () => {
+    const app = await createApplication(
+      defineModule({
+        name: "route-event-fallbacks",
+        controllers: [EligibilityController],
+      }),
+    );
+    const events: Array<{
+      pathname: string;
+      route: string;
+      status: number;
+    }> = [];
+    app.events.on("request.completed", (event) => {
+      events.push({
+        pathname: event.pathname,
+        route: event.route,
+        status: event.status,
+      });
+    });
+
+    expect((await app.fetch(new Request("http://test/missing"))).status).toBe(
+      404,
+    );
+    expect(
+      (
+        await app.fetch(
+          new Request("http://test/eligibility/param/42", { method: "POST" }),
+        )
+      ).status,
+    ).toBe(405);
+    expect(events).toEqual([
+      { pathname: "/missing", route: "/missing", status: 404 },
+      {
+        pathname: "/eligibility/param/42",
+        route: "/eligibility/param/42",
+        status: 405,
+      },
+    ]);
+    await app.close();
+  });
+
   test("compila o módulo e usa app.fetch sem abrir socket", async () => {
     const app = await createApplication(
       defineModule({ name: "app", controllers: [HelloController] }),

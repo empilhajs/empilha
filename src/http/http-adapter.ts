@@ -1,14 +1,8 @@
 import { RouteTree } from "../router/route-tree";
 import { normalizeMethod, normalizePath } from "../router/path";
-import {
-  abortRequestScope,
-  createRequestScope,
-  runWithRequestContext,
-  tryRequestContext,
-  type RequestScope,
-} from "../context";
+import { tryRequestContext } from "../context";
 import { Container, type Clock, type RequestIdGenerator } from "../di";
-import { JsonBodyReader, RequestBodyError } from "./request-body-reader";
+import { JsonBodyReader } from "./request-body-reader";
 import {
   HttpResponseWriter,
   type ServerResponse,
@@ -33,6 +27,8 @@ import {
   validateTimeout,
 } from "./adapter-helpers";
 import { RequestTracker } from "./request-tracker";
+import { RequestLifecycle } from "./request-lifecycle";
+import { dispatchRequestBody } from "./request-body-dispatch";
 import {
   headersToRecord,
   countHeaders,
@@ -46,7 +42,8 @@ import { EMPTY_STRING_RECORD } from "../utils/records";
 import { withTimeout } from "../utils/timeout";
 import { ApplicationLogger, type Logger } from "../utils/logger";
 import { HttpServer, type NativeRouteValue } from "./http-server";
-import { addRequestId, createRequestId } from "./request-id";
+import { createRequestId } from "./request-id";
+import { resolveNativeRouteEligibility } from "./native-route-eligibility";
 import { serializeJson } from "../utils/serialize-json";
 import { observableError, type ApplicationEvents } from "../runtime";
 import {
@@ -73,6 +70,7 @@ const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 type MatchedRoute = {
   handler: ServerHandler;
   params: Record<string, string>;
+  path: string;
 };
 
 // Handlers que não declaram nenhuma dependência do request recebem este valor
@@ -129,6 +127,15 @@ export class HttpAdapter {
   private requestScopeFactory: (() => Container) | undefined;
 
   private readonly requests = new RequestTracker();
+
+  private readonly requestLifecycle = new RequestLifecycle({
+    requests: this.requests,
+    getConcurrency: () => this.requestConcurrency,
+    getRequestScopeFactory: () => this.requestScopeFactory,
+    getRequestIdEnabled: () => this.requestIdEnabled,
+    getRequestIdGenerator: () => this.requestIdGenerator,
+    errorResponse: (status, message) => this.responses.error(status, message),
+  });
 
   private readonly server = new HttpServer(
     (request) => this.handleRequest(request),
@@ -195,28 +202,14 @@ export class HttpAdapter {
 
   /** Retorna a decisão de promoção calculada para cada rota registrada. */
   getNativeRouteEligibility(): readonly NativeRouteEligibility[] {
-    const globalReasons: string[] = [];
-    if (this.middlewares.length > 0) globalReasons.push("middleware-global");
-    if (this.responses.corsEnabled) globalReasons.push("cors");
-    if (this.handlerTimeoutMs !== null) globalReasons.push("handler-timeout");
-    if (this.requestConcurrency !== null)
-      globalReasons.push("request-concurrency");
-    if (this.bodyReader.hasTimeout) globalReasons.push("body-timeout");
-    if (this.bodyReader.hasCustomMaxBytes)
-      globalReasons.push("body-size-limit");
-
-    return Object.freeze(
-      this.nativeEligibility.map((entry) =>
-        Object.freeze({
-          ...entry,
-          eligible: entry.eligible && globalReasons.length === 0,
-          reasons: Object.freeze([
-            ...entry.reasons,
-            ...(entry.eligible ? globalReasons : []),
-          ]),
-        }),
-      ),
-    );
+    return resolveNativeRouteEligibility(this.nativeEligibility, {
+      middleware: this.middlewares.length > 0,
+      cors: this.responses.corsEnabled,
+      handlerTimeout: this.handlerTimeoutMs !== null,
+      requestConcurrency: this.requestConcurrency !== null,
+      bodyTimeout: this.bodyReader.hasTimeout,
+      bodySizeLimit: this.bodyReader.hasCustomMaxBytes,
+    });
   }
 
   setEvents(events: ApplicationEvents): void {
@@ -375,7 +368,7 @@ export class HttpAdapter {
       scope.waitUntil(response);
 
       return withTimeout(response, this.handlerTimeoutMs, () => {
-        abortRequestScope(scope, new Error("Handler timeout"));
+        this.requestLifecycle.abort(scope, new Error("Handler timeout"));
         return this.responses.error(504, "Handler timeout");
       }).catch((error) => {
         this.logger.error(error, "Falha ao produzir resposta HTTP.");
@@ -512,22 +505,13 @@ export class HttpAdapter {
     handler: ConfiguredHandler,
     controller?: AbortController,
   ): Promise<Response> {
-    return this.bodyReader
-      .read(
-        request,
-        this.bodyReader.hasTimeout ? tryRequestContext() : undefined,
-      )
-      .then((body) => {
-        serverRequest.body = body;
-        return this.dispatchHandler(serverRequest, handler, controller);
-      })
-      .catch((error) => {
-        if (error instanceof RequestBodyError) {
-          return this.responses.error(error.status, error.message);
-        }
-
-        return this.handleDispatchError(error);
-      });
+    return dispatchRequestBody(request, serverRequest, handler, controller, {
+      bodyReader: this.bodyReader,
+      dispatch: (nextRequest, nextHandler, nextController) =>
+        this.dispatchHandler(nextRequest, nextHandler, nextController),
+      dispatchError: (error) => this.handleDispatchError(error),
+      errorResponse: (status, message) => this.responses.error(status, message),
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -546,13 +530,19 @@ export class HttpAdapter {
    */
   handleRequest(request: Request): Response | Promise<Response> {
     const startedAt = this.clock.now();
-    const requestPath = (() => {
+    let parsedPath: ParsedRequestPath | undefined;
+    let requestPath = "/";
+    try {
+      parsedPath = parseRequestPath(request.url);
+      requestPath = parsedPath.pathname;
+    } catch {
       try {
-        return parseRequestPath(request.url).pathname;
+        requestPath = new URL(request.url).pathname;
       } catch {
-        return new URL(request.url).pathname;
+        requestPath = "/";
       }
-    })();
+    }
+    let matchedRoute = requestPath;
     const emitComplete = (response: Response): Response => {
       const requestId =
         response.headers.get("X-Request-Id") ??
@@ -564,7 +554,7 @@ export class HttpAdapter {
           requestId,
           method: request.method,
           pathname: requestPath,
-          route: requestPath,
+          route: matchedRoute,
           status: response.status,
           durationMs: Math.max(0, this.clock.now() - startedAt),
         }),
@@ -583,8 +573,8 @@ export class HttpAdapter {
         Object.freeze({
           requestId: request.headers.get("X-Request-Id") ?? "unknown",
           method: request.method,
-          pathname: new URL(request.url).pathname,
-          route: new URL(request.url).pathname,
+          pathname: requestPath,
+          route: matchedRoute,
           status: 500,
           durationMs: Math.max(0, this.clock.now() - startedAt),
           error: observableError(error),
@@ -593,7 +583,9 @@ export class HttpAdapter {
       throw error;
     };
     try {
-      const result = this.dispatchRequest(request);
+      const result = this.dispatchRequest(request, parsedPath, (routePath) => {
+        matchedRoute = routePath;
+      });
       return isPromise(result)
         ? result.then(complete, failed)
         : complete(result);
@@ -602,7 +594,11 @@ export class HttpAdapter {
     }
   }
 
-  private dispatchRequest(request: Request): Response | Promise<Response> {
+  private dispatchRequest(
+    request: Request,
+    parsedPath: ParsedRequestPath | undefined,
+    onRoute?: (path: string) => void,
+  ): Response | Promise<Response> {
     if (
       this.maxHeaderCount !== null &&
       // Headers já foram normalizados pela API Fetch; este limite conta
@@ -612,11 +608,7 @@ export class HttpAdapter {
       return this.responses.error(431, "Request Header Fields Too Large");
     }
 
-    let parsedPath: ParsedRequestPath;
-
-    try {
-      parsedPath = parseRequestPath(request.url);
-    } catch {
+    if (!parsedPath) {
       return this.runRequestWithoutScope(request, () =>
         this.responses.error(400, "Bad request"),
       );
@@ -656,6 +648,7 @@ export class HttpAdapter {
       );
     }
 
+    onRoute?.(route.path);
     return this.dispatchMatchedRequest(request, parsedPath, route);
   }
 
@@ -700,88 +693,18 @@ export class HttpAdapter {
     request: Request,
     callback: (controller: AbortController) => Response | Promise<Response>,
   ): Response | Promise<Response> {
-    if (!this.requests.tryEnter(this.requestConcurrency)) {
-      return this.responses.error(503, "Request concurrency limit reached");
-    }
-
-    const controller = new AbortController();
-    const abortFromRequest = () => controller.abort(request.signal.reason);
-    if (request.signal.aborted) abortFromRequest();
-    else
-      request.signal.addEventListener("abort", abortFromRequest, {
-        once: true,
-      });
-
-    try {
-      const response = callback(controller);
-
-      if (isPromise(response)) {
-        return response
-          .then((value) => this.withRequestId(value))
-          .finally(() => {
-            request.signal.removeEventListener("abort", abortFromRequest);
-            this.requests.leave();
-          });
-      }
-
-      this.requests.leave();
-      request.signal.removeEventListener("abort", abortFromRequest);
-      return this.withRequestId(response);
-    } catch (error) {
-      request.signal.removeEventListener("abort", abortFromRequest);
-      this.requests.leave();
-      throw error;
-    }
+    return this.requestLifecycle.runWithoutScope(request, callback);
   }
 
   private runRequestScope(
     request: Request,
     callback: () => Response | Promise<Response>,
   ): Response | Promise<Response> {
-    if (!this.requests.tryEnter(this.requestConcurrency)) {
-      return this.responses.error(503, "Request concurrency limit reached");
-    }
-
-    let scope: RequestScope;
-
-    try {
-      scope = createRequestScope(
-        request,
-        this.requestScopeFactory?.() ?? new Container(),
-        this.requestIdGenerator,
-      );
-    } catch (error) {
-      this.requests.leave();
-      throw error;
-    }
-
-    this.requests.trackScope(scope);
-
-    try {
-      const response = runWithRequestContext(scope, callback);
-
-      const withScopeRequestId = (value: Response): Response => {
-        return this.withRequestId(value, scope.requestId);
-      };
-
-      if (isPromise(response)) {
-        return response
-          .then(withScopeRequestId)
-          .finally(() => this.requests.cleanupScope(scope));
-      }
-
-      this.requests.cleanupScope(scope);
-      return withScopeRequestId(response);
-    } catch (error) {
-      this.requests.cleanupScope(scope);
-      throw error;
-    }
+    return this.requestLifecycle.runScope(request, callback);
   }
 
   private withRequestId(response: Response, requestId?: string): Response {
-    return this.requestIdEnabled
-      ? addRequestId(response, requestId ?? this.requestIdGenerator())
-      : response;
+    return this.requestLifecycle.withRequestId(response, requestId);
   }
 
   private handleRequestInContext(

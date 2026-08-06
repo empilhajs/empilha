@@ -1,6 +1,6 @@
 import { registerCatchHandler } from "../core/metadata";
 
-type ErrorConstructor = new (...args: any[]) => Error;
+type ErrorConstructor = abstract new (...args: never[]) => Error;
 
 /**
  * Registra um método como handler de um tipo de erro.

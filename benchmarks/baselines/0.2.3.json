@@ -1,0 +1,25 @@
+{
+  "bun": "1.3.14",
+  "capturedBy": "bun run check:budgets && bun run benchmark:path && bun run benchmark:routes",
+  "runtime": {
+    "routes25": {
+      "compileMs": 13.959013,
+      "firstResponseMs": 2.421216
+    },
+    "routes1000": {
+      "compileMs": 55.059806,
+      "firstResponseMs": 0.362135
+    },
+    "routes10000": {
+      "compileMs": 510.804182,
+      "firstResponseMs": 0.324156
+    }
+  },
+  "routeProfile": {
+    "iterations": 1000000,
+    "findMs": 258.15,
+    "allowedMethodsMs": 445.32,
+    "methodNotAllowedLookupMs": 547.2
+  },
+  "notes": "Valores de referência de uma execução local; comparar somente com a mesma versão do Bun e ambiente equivalente."
+}

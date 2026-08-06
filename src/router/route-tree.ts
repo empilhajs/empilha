@@ -18,6 +18,7 @@ type Handler = (...args: never[]) => unknown;
 export type RouteMatch<THandler extends Handler> = {
   handler: THandler;
   params: Record<string, string>;
+  path: string;
 };
 
 /**
@@ -38,10 +39,15 @@ interface ParamChild<THandler extends Handler> {
  * e um possível filho parametrizado.
  */
 interface RouteNode<THandler extends Handler> {
-  handlers: Map<string, THandler>;
+  handlers: Map<string, RouteEntry<THandler>>;
   staticChildren: Map<string, RouteNode<THandler>>;
   paramChild: ParamChild<THandler> | null;
 }
+
+type RouteEntry<THandler extends Handler> = {
+  handler: THandler;
+  path: string;
+};
 
 type PatternRoute<THandler extends Handler> = {
   method: string;
@@ -138,36 +144,7 @@ function createNode<THandler extends Handler>(): RouteNode<THandler> {
   };
 }
 
-/**
- * Cria um objeto seguro para armazenar parâmetros da rota.
- *
- * O objeto não possui protótipo, evitando conflitos com
- * nomes especiais como `__proto__` e `constructor`.
- *
- * @returns Um objeto vazio para os parâmetros encontrados.
- */
-/**
- * Normaliza um método HTTP.
- *
- * Remove espaços externos e converte o método
- * para letras maiúsculas.
- *
- * @param method - Método HTTP que será normalizado.
- *
- * @returns O método HTTP normalizado.
- *
- * @throws {Error} Quando o método informado está vazio.
- */
-/**
- * Decodifica um segmento recebido na URL.
- *
- * @param segment - Segmento que será decodificado.
- * @param path - Caminho completo usado na mensagem de erro.
- *
- * @returns O segmento decodificado.
- *
- * @throws {Error} Quando o segmento possui codificação inválida.
- */
+/** Decodifica um segmento recebido e preserva o contexto do erro. */
 function decodePathSegment(segment: string, path: string): string {
   try {
     return decodeURIComponent(segment);
@@ -366,7 +343,10 @@ export class RouteTree<THandler extends Handler = Handler> {
       throw new Error(`Rota duplicada: ${normalizedMethod} ${normalizedPath}`);
     }
 
-    current.handlers.set(normalizedMethod, handler);
+    current.handlers.set(normalizedMethod, {
+      handler,
+      path: normalizedPath,
+    });
     this.registeredRoutes.push({
       method: normalizedMethod,
       path: normalizedPath,
@@ -379,6 +359,7 @@ export class RouteTree<THandler extends Handler = Handler> {
         Object.freeze({
           handler,
           params: EMPTY_STRING_RECORD,
+          path: normalizedPath,
         });
     }
 
@@ -505,14 +486,14 @@ export class RouteTree<THandler extends Handler = Handler> {
     }
 
     if (index === segments.length) {
-      const handler =
+      const entry =
         current.handlers.get(normalizedMethod) ??
         (normalizedMethod === "HEAD" ? current.handlers.get("GET") : undefined);
-
-      if (handler !== undefined) {
+      if (entry !== undefined) {
         return {
-          handler,
+          handler: entry.handler,
           params: params ?? EMPTY_STRING_RECORD,
+          path: entry.path,
         };
       }
     }
@@ -531,14 +512,18 @@ export class RouteTree<THandler extends Handler = Handler> {
       const state = stack.pop() as SearchState;
 
       if (state.segmentIndex === segments.length) {
-        const handler =
+        const entry =
           state.node.handlers.get(normalizedMethod) ??
           (normalizedMethod === "HEAD"
             ? state.node.handlers.get("GET")
             : undefined);
 
-        if (handler !== undefined) {
-          return { handler, params: state.params };
+        if (entry !== undefined) {
+          return {
+            handler: entry.handler,
+            params: state.params,
+            path: entry.path,
+          };
         }
         continue;
       }
@@ -622,7 +607,11 @@ export class RouteTree<THandler extends Handler = Handler> {
       }
 
       if (matched && pathIndex === segments.length) {
-        return { handler: route.handler, params: patternParams };
+        return {
+          handler: route.handler,
+          params: patternParams,
+          path: route.path,
+        };
       }
     }
 
@@ -631,15 +620,70 @@ export class RouteTree<THandler extends Handler = Handler> {
 
   /** Retorna os métodos registrados que correspondem ao caminho. */
   allowedMethods(path: string): string[] {
-    const methods = [
-      "GET",
-      "HEAD",
-      "OPTIONS",
-      "POST",
-      "PUT",
-      "PATCH",
-      "DELETE",
-    ];
-    return methods.filter((method) => this.find(method, path) !== null);
+    const normalizedPath = normalizePath(path);
+    const segments = splitPath(normalizedPath);
+    const methods = new Set<string>();
+    type SearchState = { node: RouteNode<THandler>; segmentIndex: number };
+    const stack: SearchState[] = [{ node: this.root, segmentIndex: 0 }];
+
+    while (stack.length > 0) {
+      const state = stack.pop() as SearchState;
+      if (state.segmentIndex === segments.length) {
+        for (const method of state.node.handlers.keys()) methods.add(method);
+        continue;
+      }
+
+      const segment = segments[state.segmentIndex];
+      const staticChild = state.node.staticChildren.get(segment);
+      if (staticChild) {
+        stack.push({
+          node: staticChild,
+          segmentIndex: state.segmentIndex + 1,
+        });
+      }
+      const paramChild = state.node.paramChild;
+      if (paramChild) {
+        decodePathSegment(segment, normalizedPath);
+        stack.push({
+          node: paramChild.node,
+          segmentIndex: state.segmentIndex + 1,
+        });
+      }
+    }
+
+    for (const route of this.patternRoutes) {
+      if (this.matchesPattern(route, segments, normalizedPath))
+        methods.add(route.method);
+    }
+
+    if (methods.has("GET")) methods.add("HEAD");
+    const order = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"];
+    return order.filter((method) => methods.has(method));
+  }
+
+  private matchesPattern(
+    route: PatternRoute<THandler>,
+    segments: string[],
+    normalizedPath: string,
+  ): boolean {
+    let pathIndex = 0;
+    for (const pattern of route.segments) {
+      if (pattern.kind === "wildcard") {
+        for (const segment of segments.slice(pathIndex))
+          decodePathSegment(segment, normalizedPath);
+        return true;
+      }
+      const segment = segments[pathIndex];
+      if (segment === undefined)
+        return pattern.kind === "param" && pattern.optional;
+      if (pattern.kind === "static" && segment !== pattern.value) return false;
+      if (pattern.kind === "param") {
+        const decoded = decodePathSegment(segment, normalizedPath);
+        if (pattern.expression && !pattern.expression.test(decoded))
+          return false;
+      }
+      pathIndex++;
+    }
+    return pathIndex === segments.length;
   }
 }

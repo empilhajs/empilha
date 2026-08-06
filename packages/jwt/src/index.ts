@@ -180,7 +180,7 @@ export function jwt<TClaimsSchema extends TSchema | undefined = undefined>(
     auth(authOptions) {
       return defineDeclarativePlugin({
         name: `@empilha/jwt/${name}/auth`,
-        version: "0.2.2",
+        version: "0.2.3",
         provides: ["auth/handler"],
         requires: [`auth/jwt/${name}`],
         register(context) {
@@ -206,7 +206,7 @@ export function jwt<TClaimsSchema extends TSchema | undefined = undefined>(
 
   const plugin = defineDeclarativePlugin({
     name: `@empilha/jwt/${name}`,
-    version: "0.2.2",
+    version: "0.2.3",
     provides: [`auth/jwt/${name}`],
     register(context) {
       context.provider({ provide: token, useValue: service });

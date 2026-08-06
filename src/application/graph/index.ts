@@ -10,7 +10,6 @@ import {
   isModuleDefinition,
   type ModuleController,
   type ModuleDefinition,
-  type ModuleProvider,
 } from "../../modules";
 import {
   diagnoseDeclarativePlugins,
@@ -25,11 +24,16 @@ import {
 } from "../bootstrap/sql-binding-validation";
 import {
   exportedTokens,
-  hasDeclaredAsyncFactory,
   providerDependencies,
   providerScope,
   providerToken,
 } from "./provider-utils";
+import {
+  collectVisibleQueries,
+  findAsyncRequestFactory,
+  findVisibleProvider,
+  requiresRequestScope,
+} from "./visibility";
 
 export {
   assertValidApplicationGraph,
@@ -214,18 +218,8 @@ export class ApplicationGraphBuilder {
         } else queryOwners.set(query.id, module.name);
       }
       const visibleQueries = new Map<string, GeneratedQuery>();
-      const collectVisibleQueries = (
-        current: ModuleDefinition,
-        visited = new Set<ModuleDefinition>(),
-      ): void => {
-        if (visited.has(current)) return;
-        visited.add(current);
-        for (const query of current.queries)
-          visibleQueries.set(query.id, query);
-        for (const imported of current.imports)
-          collectVisibleQueries(imported, visited);
-      };
-      collectVisibleQueries(module);
+      for (const [id, query] of collectVisibleQueries(module))
+        visibleQueries.set(id, query);
       for (const diagnostic of diagnoseDeclarativePlugins(module.plugins)) {
         diagnostics.push({
           code: diagnostic.code,
@@ -634,42 +628,7 @@ export class ApplicationGraphBuilder {
         });
       }
       const reportedScopes = new Set<string>();
-      const findVisibleProvider = (
-        current: ModuleDefinition,
-        token: DependencyToken,
-        visited = new Set<ModuleDefinition>(),
-      ): { owner: ModuleDefinition; provider: ModuleProvider } | undefined => {
-        if (visited.has(current)) return undefined;
-        visited.add(current);
-        const local = current.providers.find(
-          (candidate) => providerToken(candidate) === token,
-        );
-        if (local !== undefined) return { owner: current, provider: local };
-        if (current.controllers.includes(token as ModuleController))
-          return { owner: current, provider: token as ModuleController };
-        for (const imported of current.imports) {
-          if (!exportedTokens(imported).includes(token)) continue;
-          const result = findVisibleProvider(imported, token, visited);
-          if (result !== undefined) return result;
-        }
-        return undefined;
-      };
-      const requiresRequest = (
-        current: ModuleDefinition,
-        token: DependencyToken,
-        stack = new Set<DependencyToken>(),
-      ): boolean => {
-        if (stack.has(token)) return false;
-        const resolved = findVisibleProvider(current, token);
-        if (resolved === undefined) return false;
-        const nextStack = new Set(stack).add(token);
-        return (
-          providerScope(resolved.provider) === "request" ||
-          providerDependencies(resolved.provider).some((dependency) =>
-            requiresRequest(resolved.owner, dependency, nextStack),
-          )
-        );
-      };
+      const requiresRequest = requiresRequestScope;
       const reportedProviderCycles = new Set<string>();
       const reportedMissingDependencies = new Set<string>();
       const inspectProviderDependencies = (
@@ -748,30 +707,6 @@ export class ApplicationGraphBuilder {
         }
       }
       const reportedAsyncControllerDependencies = new Set<string>();
-      const findAsyncRequestFactory = (
-        current: ModuleDefinition,
-        token: DependencyToken,
-        stack = new Set<DependencyToken>(),
-      ): { token: DependencyToken; provider: ModuleProvider } | undefined => {
-        if (stack.has(token)) return undefined;
-        const resolved = findVisibleProvider(current, token);
-        if (resolved === undefined) return undefined;
-        if (
-          providerScope(resolved.provider) === "request" &&
-          hasDeclaredAsyncFactory(resolved.provider)
-        )
-          return { token, provider: resolved.provider };
-        const nextStack = new Set(stack).add(token);
-        for (const dependency of providerDependencies(resolved.provider)) {
-          const found = findAsyncRequestFactory(
-            resolved.owner,
-            dependency,
-            nextStack,
-          );
-          if (found !== undefined) return found;
-        }
-        return undefined;
-      };
       for (const controller of module.controllers) {
         const dependencies = providerDependencies(controller);
         if (dependencies.length === 0) continue;

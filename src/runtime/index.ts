@@ -17,12 +17,15 @@ import type { Logger } from "../utils/logger";
 export type ObservableError = Readonly<{
   readonly name: string;
   readonly status?: number;
+  readonly code?: string;
 }>;
 
 export type RequestCompletedEvent = Readonly<{
   readonly requestId: string;
   readonly method: string;
+  /** Caminho concreto recebido, como `/tasks/42`. */
   readonly pathname: string;
+  /** Template registrado, como `/tasks/:id`; usa pathname sem match. */
   readonly route: string;
   readonly status: number;
   readonly durationMs: number;
@@ -61,9 +64,11 @@ export type ApplicationEventListener<K extends ApplicationEventName> = (
 export function observableError(error: unknown): ObservableError {
   if (error instanceof Error) {
     const status = (error as { status?: unknown }).status;
+    const code = (error as { code?: unknown }).code;
     return Object.freeze({
       name: error.name,
       ...(typeof status === "number" ? { status } : {}),
+      ...(typeof code === "string" ? { code } : {}),
     });
   }
   return Object.freeze({ name: "Error" });

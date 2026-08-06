@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { testPort } from "../helpers/test-utils";
 
 async function waitForOutput(
   output: () => string,
@@ -27,6 +28,7 @@ describe("dev supervisor", () => {
     const applicationSource = pathToFileURL(
       join(root, "src/application/application.ts"),
     ).href;
+    const devPort = testPort();
     const devScript = join(root, "scripts/application/dev.ts");
     const moduleFile = join(directory, "src/modules/app.module.ts");
     const appFile = join(directory, "src/app.ts");
@@ -46,7 +48,7 @@ export const AppModule = defineModule({ name: "dev-test", exports: [missing] });
       `import { createApplication } from "${applicationSource}";
 import { AppModule } from "./modules/app.module.ts";
 const app = await createApplication(AppModule);
-await app.listen(0);
+await app.listen(${devPort});
 `,
     );
 

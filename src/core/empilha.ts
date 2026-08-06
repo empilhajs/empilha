@@ -57,7 +57,8 @@ import type { ControllerInstance } from "../compiler";
 import { invokeController } from "../utils/controller";
 import { ApplicationRunner } from "../application/lifecycle/application-runner";
 import type { HealthCheckOptions } from "../application/lifecycle/health-checks";
-import { validateHttpOptions, validateTimeout } from "../http/adapter-helpers";
+import { validateTimeout } from "../http/adapter-helpers";
+import { assertRuntimeConfig } from "./runtime-config-validation";
 import { createRequestId } from "../http/request-id";
 import type { Logger } from "../utils/logger";
 import type {
@@ -124,79 +125,6 @@ type ErrorHandler = (
 ) => Promise<ServerResponse>;
 
 type GlobalCatchHandler = (error: unknown) => unknown | Promise<unknown>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function assertConfigObject(
-  value: unknown,
-  name: string,
-): asserts value is Record<string, unknown> {
-  if (!isRecord(value)) {
-    throw new TypeError(`A configuração ${name} deve ser um objeto.`);
-  }
-}
-
-function assertRuntimeConfig(config: EmpilhaRuntimeConfig): void {
-  assertConfigObject(config, "runtime");
-  if (config.server !== undefined) {
-    assertConfigObject(config.server, "server");
-    if (config.server.port !== undefined) {
-      const port = config.server.port;
-      if (!Number.isInteger(port) || port < 0 || port > 65_535)
-        throw new RangeError("A porta do servidor deve estar entre 0 e 65535.");
-    }
-    if (
-      config.server.signals !== undefined &&
-      typeof config.server.signals !== "boolean"
-    ) {
-      throw new TypeError("server.signals deve ser booleano.");
-    }
-  }
-  if (config.http !== undefined) {
-    assertConfigObject(config.http, "http");
-    validateHttpOptions(config.http);
-  }
-  if (config.health !== undefined) assertConfigObject(config.health, "health");
-  if (config.openapi !== undefined && config.openapi !== false)
-    assertConfigObject(config.openapi, "openapi");
-  if (config.middleware !== undefined) {
-    if (
-      !Array.isArray(config.middleware) ||
-      config.middleware.some((middleware) => typeof middleware !== "function")
-    ) {
-      throw new TypeError("middleware deve ser uma lista de funções.");
-    }
-  }
-  if (config.auth !== undefined) assertConfigObject(config.auth, "auth");
-  if (config.backgroundJobs !== undefined)
-    assertConfigObject(config.backgroundJobs, "backgroundJobs");
-  if (
-    config.onBackgroundError !== undefined &&
-    typeof config.onBackgroundError !== "function"
-  ) {
-    throw new TypeError("onBackgroundError deve ser uma função.");
-  }
-  if (config.validation !== undefined) {
-    assertConfigObject(config.validation, "validation");
-    if (
-      config.validation.responses !== undefined &&
-      typeof config.validation.responses !== "boolean"
-    ) {
-      throw new TypeError("validation.responses deve ser booleano.");
-    }
-  }
-  if (config.logging !== undefined) {
-    assertConfigObject(config.logging, "logging");
-    if (
-      config.logging.requests !== undefined &&
-      typeof config.logging.requests !== "boolean"
-    ) {
-      throw new TypeError("logging.requests deve ser booleano.");
-    }
-  }
-}
 
 export type BackgroundJobsOptions = BackgroundSchedulerOptions;
 
@@ -407,7 +335,6 @@ export class ApplicationRuntime {
   /** Agrupa ajustes HTTP que normalmente só fogem dos padrões em produção. */
   configureHttp(options: HttpOptions): this {
     this.assertConfiguring("configureHttp()");
-    validateHttpOptions(options);
     const disposalTimeout =
       options.disposalTimeout !== undefined
         ? validateTimeout(options.disposalTimeout, "descarte")

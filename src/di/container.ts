@@ -63,6 +63,10 @@ import {
   registerInjectableScope,
 } from "./dependency-metadata";
 import { getOrCreateRoute } from "../core/metadata";
+import {
+  clearContainerResources,
+  disposeContainerResources,
+} from "./container-disposal";
 
 function extendDependencyStack<T>(
   token: T,
@@ -143,7 +147,7 @@ export function Injectable(options: InjectableOptions): ClassDecorator {
  * @param target - Classe cuja metadata será consultada.
  * @returns Tokens na ordem dos parâmetros do construtor.
  */
-type RegisteredProvider = Provider<any> & {
+type RegisteredProvider = Provider<unknown> & {
   token: DependencyToken;
 };
 
@@ -152,7 +156,7 @@ type LocatedProvider = {
   owner: Container;
 };
 
-type OwnedInstance = {
+export type OwnedInstance = {
   token: DependencyToken;
   value: unknown;
   onDispose?: (value: unknown) => void | Promise<void>;
@@ -260,7 +264,7 @@ export class Container {
       token,
       ...normalized,
       scope: normalized.scope ?? "singleton",
-    });
+    } as unknown as RegisteredProvider);
     this.instances.delete(token);
     this.pendingInstances.delete(token);
     return this;
@@ -513,42 +517,7 @@ export class Container {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    const errors: unknown[] = [];
-
-    // Uma ativação já iniciada pode adquirir um recurso antes de observar o
-    // fechamento. Aguarde sua conclusão para que o disposal abaixo também a
-    // inclua, sem transformar a falha original da factory em falha de close.
-    await Promise.allSettled(this.pendingInstances.values());
-
-    for (let index = this.ownedInstances.length - 1; index >= 0; index--) {
-      const instance = this.ownedInstances[index];
-      if (!instance.onDispose) continue;
-      try {
-        await instance.onDispose(instance.value);
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-
-    for (const hook of this.disposeHooks) {
-      try {
-        await hook();
-      } catch (error) {
-        errors.push(error);
-      }
-    }
-
-    this.instances.clear();
-    this.pendingInstances.clear();
-    this.ownedInstances.length = 0;
-    this.ownedByToken.clear();
-    this.disposeHooks.clear();
-    if (errors.length > 0) {
-      throw new AggregateError(
-        errors,
-        "Falha ao encerrar providers do container.",
-      );
-    }
+    await disposeContainerResources(this.disposalState());
   }
 
   /**
@@ -567,12 +536,18 @@ export class Container {
       return false;
     }
     this.disposed = true;
-    this.instances.clear();
-    this.pendingInstances.clear();
-    this.ownedInstances.length = 0;
-    this.ownedByToken.clear();
-    this.disposeHooks.clear();
+    clearContainerResources(this.disposalState());
     return true;
+  }
+
+  private disposalState() {
+    return {
+      pendingInstances: this.pendingInstances,
+      ownedInstances: this.ownedInstances,
+      ownedByToken: this.ownedByToken,
+      instances: this.instances,
+      disposeHooks: this.disposeHooks,
+    };
   }
 
   private findProvider(token: DependencyToken): LocatedProvider | undefined {
@@ -607,8 +582,8 @@ export class Container {
       return this.resolveWithStack(dependency, stack);
     });
 
-    const Concrete = target as unknown as new (...args: any[]) => T;
-    return new Concrete(...args);
+    const Concrete = target as unknown as new (...args: never[]) => T;
+    return new Concrete(...(args as never[]));
   }
 
   private async instantiateAsync<T>(
@@ -629,8 +604,8 @@ export class Container {
       }),
     );
 
-    const Concrete = target as unknown as new (...args: any[]) => T;
-    return new Concrete(...args);
+    const Concrete = target as unknown as new (...args: never[]) => T;
+    return new Concrete(...(args as never[]));
   }
 
   private assertActive(): void {
