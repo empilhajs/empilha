@@ -102,7 +102,7 @@ describe("@empilha/pg", () => {
         id: "sleep",
         source: "integration.sql",
         cardinality: "one",
-        sql: "SELECT pg_sleep(1) AS value",
+        sql: "SELECT pg_sleep(2) AS value",
       });
 
       @Controller("/integration")
@@ -126,7 +126,8 @@ describe("@empilha/pg", () => {
           plugins: [
             postgres({
               url: process.env.DATABASE_URL!,
-              timeout: 50,
+              timeout: 500,
+              statement_timeout: 1_500,
               healthCheck: false,
             }),
           ],
