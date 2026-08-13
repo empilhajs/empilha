@@ -62,7 +62,6 @@ function diagnose(): void {
     );
   }
   run(command);
-  console.log("✓ Build válido; iniciando o servidor.");
 }
 
 function refreshBuild(): void {
@@ -197,6 +196,7 @@ const watchers = hotReload
     ].filter((watcher): watcher is fs.FSWatcher => watcher !== undefined);
 
 monitorServer(server);
+console.log("✓ Build válido; iniciando o servidor.");
 
 try {
   await new Promise<void>((resolve) => {

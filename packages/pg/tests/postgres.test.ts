@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  Controller,
-  Get,
-  Result,
-  Sql,
-  createApplication,
-  defineGeneratedQuery,
-  defineModule,
-} from "empilha";
+import { type PostgresQueryRunner } from "empilha";
 import { postgres } from "../src";
 
 describe("@empilha/pg", () => {
@@ -90,62 +82,49 @@ describe("@empilha/pg", () => {
   });
 
   test.skipIf(!process.env.DATABASE_URL)(
-    "executa query e cancela pg_sleep com o plugin real",
+    "executa, cancela e reutiliza o plugin real",
     async () => {
-      const valueQuery = defineGeneratedQuery({
-        id: "value",
-        source: "integration.sql",
-        cardinality: "one",
-        sql: "SELECT 1 AS value",
+      const plugin = postgres({
+        url: process.env.DATABASE_URL!,
+        statement_timeout: 1_500,
+        healthCheck: false,
       });
-      const sleepQuery = defineGeneratedQuery({
-        id: "sleep",
-        source: "integration.sql",
-        cardinality: "one",
-        sql: "SELECT pg_sleep(2) AS value",
-      });
-
-      @Controller("/integration")
-      class IntegrationController {
-        @Get("/value")
-        @Sql(valueQuery)
-        @Result("one")
-        value() {}
-
-        @Get("/sleep")
-        @Sql(sleepQuery)
-        @Result("one")
-        sleep() {}
-      }
-
-      const app = await createApplication(
-        defineModule({
-          name: "pg-integration",
-          controllers: [IntegrationController],
-          queries: [valueQuery, sleepQuery],
-          plugins: [
-            postgres({
-              url: process.env.DATABASE_URL!,
-              timeout: 500,
-              statement_timeout: 1_500,
-              healthCheck: false,
-            }),
-          ],
-        }),
+      let runner: PostgresQueryRunner | undefined;
+      let close: (() => Promise<void>) | undefined;
+      await plugin.descriptor.register(
         {
-          configure: (runtime) => runtime.configureHttp({ cors: false }),
+          provider() {},
+          postgres(value) {
+            runner = value;
+          },
+          onClose(hook) {
+            close = hook;
+          },
+          healthCheck() {},
+          provideCapability() {},
+          auth() {},
         },
+        undefined,
       );
 
       try {
-        const result = await app.test().get("/integration/value");
-        expect(result.status).toBe(200);
-        expect(await result.json()).toEqual({ value: 1 });
+        expect(runner).toBeDefined();
+        expect((await runner!.query("SELECT 1 AS value")).rows).toEqual([
+          { value: 1 },
+        ]);
 
-        const timeout = await app.test().get("/integration/sleep");
-        expect(timeout.status).toBe(504);
+        const controller = new AbortController();
+        const sleeping = runner!.query("SELECT pg_sleep(2)", undefined, {
+          signal: controller.signal,
+        });
+        setTimeout(() => controller.abort(), 100);
+        await expect(sleeping).rejects.toMatchObject({ code: "57014" });
+
+        expect((await runner!.query("SELECT 2 AS value")).rows).toEqual([
+          { value: 2 },
+        ]);
       } finally {
-        await app.close();
+        await close?.();
       }
     },
   );
