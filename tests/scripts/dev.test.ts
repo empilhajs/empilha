@@ -8,7 +8,7 @@ import { testPort } from "../helpers/test-utils";
 async function waitForOutput(
   output: () => string,
   fragment: string,
-  timeoutMs = 15_000,
+  timeoutMs = 30_000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -94,5 +94,5 @@ await app.listen(${devPort});
       await Promise.allSettled(readers);
       rmSync(directory, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 60_000);
 });

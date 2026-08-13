@@ -7,15 +7,15 @@ import {
   postgresRunner,
   type PostgresQueryRunner,
 } from "empilha";
-import { Pool, Query, type PoolClient, type PoolConfig } from "pg";
+import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 
 export type PostgresPluginOptions = Omit<PoolConfig, "connectionString"> &
   Omit<PostgresOptions, "close"> & {
     url: string;
   };
 
-type CancellableClient = PoolClient & {
-  cancel(client: PoolClient, query: Query): void;
+type BackendClient = PoolClient & {
+  processID: number;
 };
 
 type QueryResult = {
@@ -32,13 +32,8 @@ async function queryWithCancellation(
   sql: string,
   params: unknown[] | undefined,
   options: QueryExecutionOptions | undefined,
+  cancelQuery: () => Promise<void>,
 ): Promise<QueryResult> {
-  const query = new Query({
-    text: sql,
-    values: params,
-  });
-  const cancellableClient = client as CancellableClient;
-
   return new Promise((resolve, reject) => {
     let settled = false;
     const cleanup = () => {
@@ -51,11 +46,10 @@ async function queryWithCancellation(
       reject(error);
     };
     const abort = () => {
-      try {
-        cancellableClient.cancel(cancellableClient, query);
-      } catch (error) {
-        fail(error);
-      }
+      // Se o canal auxiliar falhar, a query original continua sendo a fonte
+      // de verdade e será limitada pelo statement_timeout do pool. Rejeitar
+      // aqui liberaria um client ainda ocupado de volta ao pool.
+      void cancelQuery().catch(() => undefined);
     };
 
     if (options?.signal?.aborted) {
@@ -64,24 +58,30 @@ async function queryWithCancellation(
     }
 
     options?.signal?.addEventListener("abort", abort, { once: true });
-    query.once("error", fail);
-    query.once("end", (result) => {
+    void client.query(sql, params).then((result) => {
       if (settled) return;
       settled = true;
       cleanup();
-      resolve({ rows: result?.rows ?? [] });
-    });
-
-    try {
-      client.query(query);
-    } catch (error) {
-      fail(error);
-    }
+      resolve({ rows: result.rows });
+    }, fail);
   });
 }
 
-function createCancellablePool(pool: Pool) {
+function createCancellablePool(pool: Pool, poolConfig: PoolConfig) {
   const connect = pool.connect.bind(pool);
+  const cancelQuery = async (client: PoolClient): Promise<void> => {
+    // O cancelamento precisa de uma conexão separada. Reutilizar o socket que
+    // executa a query mistura mensagens e corrompe o estado do protocolo.
+    const cancellationClient = new Client(poolConfig);
+    await cancellationClient.connect();
+    try {
+      await cancellationClient.query("SELECT pg_cancel_backend($1)", [
+        (client as BackendClient).processID,
+      ]);
+    } finally {
+      await cancellationClient.end();
+    }
+  };
   const queryWithOptions = async (
     sql: string,
     params?: unknown[],
@@ -89,7 +89,9 @@ function createCancellablePool(pool: Pool) {
   ) => {
     const client = await connect();
     try {
-      return await queryWithCancellation(client, sql, params, options);
+      return await queryWithCancellation(client, sql, params, options, () =>
+        cancelQuery(client),
+      );
     } finally {
       client.release();
     }
@@ -108,7 +110,10 @@ function createCancellablePool(pool: Pool) {
           sql: string,
           params?: unknown[],
           options?: QueryExecutionOptions,
-        ) => queryWithCancellation(client, sql, params, options),
+        ) =>
+          queryWithCancellation(client, sql, params, options, () =>
+            cancelQuery(client),
+          ),
         release: (destroy = false) => client.release(destroy),
       };
     },
@@ -132,11 +137,10 @@ export function postgres(options: PostgresPluginOptions): PostgresPlugin {
 
   if (timeout !== undefined && timeout !== null) {
     poolConfig.statement_timeout ??= timeout;
-    poolConfig.query_timeout ??= timeout;
   }
 
   const pool = new Pool(poolConfig);
-  const cancellablePool = createCancellablePool(pool);
+  const cancellablePool = createCancellablePool(pool, poolConfig);
 
   return defineDeclarativePlugin({
     name: "@empilha/pg",

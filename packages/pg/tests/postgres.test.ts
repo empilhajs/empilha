@@ -5,6 +5,7 @@ import {
   Result,
   Sql,
   createApplication,
+  defineGeneratedQuery,
   defineModule,
 } from "empilha";
 import { postgres } from "../src";
@@ -28,9 +29,9 @@ describe("@empilha/pg", () => {
       {
         provider(provider) {
           providers.push(provider);
-          if ("useValue" in provider && provider.useValue) {
-            pool = provider.useValue as { options: Record<string, unknown> };
-          }
+          const value = "useValue" in provider ? provider.useValue : undefined;
+          if (typeof value === "object" && value !== null && "options" in value)
+            pool = value as { options: Record<string, unknown> };
         },
         postgres(_runner, options) {
           receivedOptions = options as Record<string, unknown>;
@@ -46,6 +47,8 @@ describe("@empilha/pg", () => {
     );
 
     expect(pool).toBeDefined();
+    expect(pool?.options.statement_timeout).toBe(2500);
+    expect(pool?.options.query_timeout).toBeUndefined();
     expect(receivedOptions).toEqual({
       sql: "./queries",
       timeout: 2500,
@@ -89,15 +92,28 @@ describe("@empilha/pg", () => {
   test.skipIf(!process.env.DATABASE_URL)(
     "executa query e cancela pg_sleep com o plugin real",
     async () => {
+      const valueQuery = defineGeneratedQuery({
+        id: "value",
+        source: "integration.sql",
+        cardinality: "one",
+        sql: "SELECT 1 AS value",
+      });
+      const sleepQuery = defineGeneratedQuery({
+        id: "sleep",
+        source: "integration.sql",
+        cardinality: "one",
+        sql: "SELECT pg_sleep(1) AS value",
+      });
+
       @Controller("/integration")
       class IntegrationController {
         @Get("/value")
-        @Sql("value")
+        @Sql(valueQuery)
         @Result("one")
         value() {}
 
         @Get("/sleep")
-        @Sql("sleep")
+        @Sql(sleepQuery)
         @Result("one")
         sleep() {}
       }
@@ -106,6 +122,7 @@ describe("@empilha/pg", () => {
         defineModule({
           name: "pg-integration",
           controllers: [IntegrationController],
+          queries: [valueQuery, sleepQuery],
           plugins: [
             postgres({
               url: process.env.DATABASE_URL!,
@@ -115,11 +132,7 @@ describe("@empilha/pg", () => {
           ],
         }),
         {
-          configure: (runtime) =>
-            runtime
-              .configureHttp({ cors: false })
-              .registerQuery("value", "SELECT 1 AS value")
-              .registerQuery("sleep", "SELECT pg_sleep(1) AS value"),
+          configure: (runtime) => runtime.configureHttp({ cors: false }),
         },
       );
 
