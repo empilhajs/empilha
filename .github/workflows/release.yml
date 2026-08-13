@@ -18,7 +18,7 @@ jobs:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Prepare synchronized release version
-        run: bun scripts/release/release.ts "${GITHUB_REF_NAME#v}" --prepare
+        run: bun scripts/release/release.ts "${GITHUB_REF_NAME#v}" --dry-run
       - run: bun run build
       - run: bun scripts/tools/link-local-core.ts
       # O core ainda não existe no registry neste ponto. Os lockfiles das

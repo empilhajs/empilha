@@ -164,6 +164,8 @@ function linkGraph(
               ? scope.resolveAsync(definition.useExisting)
               : scope.resolve(definition.useExisting),
           scope: definition.scope,
+          async: asyncFactories,
+          multi: "multi" in definition ? definition.multi : undefined,
         });
       } else if ("useFactory" in definition) {
         container.provide(definition.provide, {
@@ -183,17 +185,21 @@ function linkGraph(
             );
           },
           scope: definition.scope,
+          async: asyncFactories,
+          multi: "multi" in definition ? definition.multi : undefined,
           onDispose: definition.onDispose,
         });
       } else if ("useClass" in definition) {
         container.provide(definition.provide, {
           useClass: definition.useClass,
           scope: definition.scope,
+          multi: "multi" in definition ? definition.multi : undefined,
           onDispose: definition.onDispose,
         });
       } else {
         container.provide(definition.provide, {
           useValue: definition.useValue,
+          multi: "multi" in definition ? definition.multi : undefined,
           onDispose: definition.onDispose,
         });
       }
@@ -240,6 +246,7 @@ function linkGraph(
               : sourceScope.resolve(token);
           },
           scope: importedScope,
+          async: asyncFactories,
         });
       }
     }

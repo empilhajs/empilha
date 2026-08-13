@@ -31,3 +31,14 @@ export type OpenApiOperation = {
   responses: Record<string, OpenApiResponse>;
   security?: Array<{ bearerAuth: [] }>;
 };
+
+export type OpenApiComponents = {
+  securitySchemes?: {
+    bearerAuth: {
+      type: "http";
+      scheme: "bearer";
+      bearerFormat: "JWT";
+    };
+  };
+  schemas?: Record<string, TSchema>;
+};

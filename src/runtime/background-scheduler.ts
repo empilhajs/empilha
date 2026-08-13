@@ -98,6 +98,15 @@ export class BackgroundScheduler {
       this.running >= this.concurrency &&
       this.queue.length >= this.queueLimit
     ) {
+      const eventMetadata = scopeMetadata(metadata);
+      this.events?.emit(
+        "background.rejected",
+        Object.freeze({
+          requestId: scope.requestId,
+          route: eventMetadata.route,
+          reason: "queue-full" as const,
+        }),
+      );
       return null;
     }
 
@@ -187,4 +196,16 @@ export class BackgroundScheduler {
       }
     }
   }
+}
+
+function scopeMetadata(value: unknown): { route: string } {
+  const metadata = value as {
+    path?: string;
+    propertyKey?: string | symbol;
+  };
+  return {
+    route:
+      metadata?.path ??
+      (metadata?.propertyKey ? String(metadata.propertyKey) : "background"),
+  };
 }

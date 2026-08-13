@@ -79,7 +79,11 @@ export function providerDependencies(
 export function hasDeclaredAsyncFactory(provider: ModuleProvider): boolean {
   if (!isProviderDeclaration(provider) || !("useFactory" in provider))
     return false;
-  return provider.useFactory.constructor?.name === "AsyncFunction";
+  if (provider.async !== undefined) return provider.async;
+  if (provider.useFactory.constructor?.name === "AsyncFunction") return true;
+  return /^async(?:\s+function\b|\s*\(|\s+[A-Za-z_$][\w$]*\s*=>)/.test(
+    Function.prototype.toString.call(provider.useFactory).trim(),
+  );
 }
 
 type ModuleExportLike = DependencyToken | ModuleDefinition;

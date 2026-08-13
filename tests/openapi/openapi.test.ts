@@ -77,6 +77,33 @@ describe("Empilha OpenAPI", () => {
     );
   });
 
+  test("emite schemas recursivos em components.schemas com referências", () => {
+    const node = t.Recursive(
+      (self) => t.Object({ value: t.String(), next: t.Optional(self) }),
+      { $id: "Node" },
+    );
+    const builder = new OpenApiDocumentBuilder();
+    builder.addRoute("Tree", "/tree", {
+      parameters: [],
+      propertyKey: "get",
+      method: "GET",
+      responseSchema: node,
+    } as unknown as RegisteredRouteMetadata);
+
+    const document = builder.build();
+    expect(document.components?.schemas?.Node).toEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          next: { $ref: "#/components/schemas/Node" },
+        }),
+      }),
+    );
+    const schema = document.paths["/tree"].get.responses["200"].content?.[
+      "application/json"
+    ].schema as unknown as Record<string, string>;
+    expect(schema).toEqual({ $ref: "#/components/schemas/Node" });
+  });
+
   test("publica headers declarados por schema", async () => {
     @Controller("/headers")
     class HeadersController {
@@ -234,7 +261,7 @@ describe("Empilha OpenAPI", () => {
         errors: expect.anything(),
       }),
     );
-    expect(document.components?.securitySchemes.bearerAuth.scheme).toBe(
+    expect(document.components?.securitySchemes?.bearerAuth.scheme).toBe(
       "bearer",
     );
 

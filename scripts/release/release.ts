@@ -229,7 +229,11 @@ if (import.meta.main && version) {
   const skipLockfiles =
     releaseArgs.includes("--skip-lockfiles") ||
     process.env.EMPILHA_RELEASE_SKIP_LOCKFILES === "1";
-  if (releaseArgs.includes("--prepare")) {
+  if (releaseArgs.includes("--dry-run")) {
+    assertReleaseVersions(root, version, {
+      checkLockfiles: !skipLockfiles,
+    });
+  } else if (releaseArgs.includes("--prepare")) {
     prepareRelease(root, version);
   } else if (releaseArgs.includes("--refresh-lockfiles")) {
     regenerateLockfiles(root, version);

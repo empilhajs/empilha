@@ -7,6 +7,7 @@ import {
   type ManagedPostgresPool,
   type QueryExecutionOptions,
 } from "../sql";
+import type { MigrationOptions, MigrationResult } from "../sql";
 import {
   Container,
   CLOCK,
@@ -73,6 +74,7 @@ export type {
   PostgresQueryRunner,
   QueryExecutionOptions,
 };
+export type { MigrationOptions, MigrationResult };
 
 export type PostgresOptions = {
   sql?: string;
@@ -112,6 +114,7 @@ export type EmpilhaRuntimeConfig = {
     requests?: boolean;
     logger?: Logger;
   };
+  migrations?: MigrationOptions | false;
 };
 
 export type ControllerConstructor<TInstance extends object = object> = new (
@@ -283,6 +286,8 @@ export class ApplicationRuntime {
       this.validateResponseSchemas(config.validation.responses);
     if (config.logging?.requests) this.useMiddleware(requestLogger());
     if (config.logging?.logger) this.logger(config.logging.logger);
+    if (config.migrations !== undefined && config.migrations !== false)
+      this.migrations(config.migrations);
 
     return this;
   }
@@ -303,15 +308,6 @@ export class ApplicationRuntime {
   ): this {
     this.assertConfiguring("postgres()");
     const managedPool = "end" in pool ? (pool as ManagedPostgresPool) : null;
-    if (
-      managedPool &&
-      !managedPool.queryWithOptions &&
-      options.timeout !== null
-    ) {
-      throw new Error(
-        "Pools PostgreSQL gerenciados precisam implementar queryWithOptions quando o timeout está habilitado. Use @empilha/pg ou configure timeout: null.",
-      );
-    }
     const runner = managedPool ? postgresRunner(managedPool) : pool;
     this.postgresExecutor.setRunner(runner);
 
@@ -329,6 +325,16 @@ export class ApplicationRuntime {
       this.onClose(() => managedPool.end!());
     }
 
+    return this;
+  }
+
+  /** Registra migrations para execução automática antes do readiness final. */
+  migrations(options: MigrationOptions): this {
+    this.assertConfiguring("migrations()");
+    this.onStart(async () => {
+      const result = await this.postgresExecutor.migrate(options);
+      this.loggerService.info(result, "Migrations aplicadas");
+    });
     return this;
   }
 

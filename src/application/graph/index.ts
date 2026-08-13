@@ -685,7 +685,9 @@ export class ApplicationGraphBuilder {
       };
       for (const provider of module.providers) {
         const token = providerToken(provider);
-        if (token !== undefined) inspectProviderDependencies(module, token);
+        if (token === undefined) continue;
+        for (const dependency of providerDependencies(provider))
+          inspectProviderDependencies(module, dependency, [token]);
       }
       // Controllers are assigned request scope automatically when their
       // dependency graph requires it; only explicit module providers can

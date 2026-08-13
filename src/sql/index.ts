@@ -10,6 +10,11 @@ export {
 } from "./postgres-executor";
 export { QueryRegistry } from "./query-registry";
 export {
+  runMigrations,
+  type MigrationOptions,
+  type MigrationResult,
+} from "./migrations";
+export {
   compileNamedSQL,
   assertSqlBinding,
   compileSqlBinding,

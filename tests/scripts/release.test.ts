@@ -52,4 +52,18 @@ describe("release preparation", () => {
       );
     }
   });
+
+  test("aceita dry-run sem alterar manifests", () => {
+    const root = resolve(import.meta.dir, "../..");
+    const result = Bun.spawnSync(
+      [
+        process.execPath,
+        resolve(root, "scripts/release/release.ts"),
+        "0.2.4",
+        "--dry-run",
+      ],
+      { cwd: root, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(result.exitCode).toBe(0);
+  });
 });

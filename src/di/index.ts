@@ -1,7 +1,10 @@
 export {
   Container,
   Inject,
+  InjectAll,
   Injectable,
+  Lazy,
+  Optional,
   type Constructor,
   type ApplicationProvider,
   type DependencyToken,

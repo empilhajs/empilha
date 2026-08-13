@@ -798,13 +798,49 @@ describe("HttpAdapter", () => {
     expect(streamedBodyResponse.status).toBe(413);
   });
 
-  test("rejeita body com Content-Type incompatível", async () => {
+  test("lê text, urlencoded e multipart conforme o Content-Type", async () => {
     const reader = new JsonBodyReader();
     await expect(
       reader.read(
         new Request("http://test/body", {
           method: "POST",
           headers: { "content-type": "text/plain" },
+          body: "hello",
+        }),
+      ),
+    ).resolves.toBe("hello");
+
+    await expect(
+      reader.read(
+        new Request("http://test/body", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: "name=Ada&tag=one&tag=two",
+        }),
+      ),
+    ).resolves.toEqual({ name: "Ada", tag: ["one", "two"] });
+
+    const form = new FormData();
+    form.append("name", "Ada");
+    form.append("tag", "one");
+    form.append("tag", "two");
+    const multipartRequest = new Request("http://test/body", {
+      method: "POST",
+      body: form,
+    });
+    await expect(reader.read(multipartRequest)).resolves.toEqual({
+      name: "Ada",
+      tag: ["one", "two"],
+    });
+  });
+
+  test("rejeita media type de body não suportado", async () => {
+    const reader = new JsonBodyReader();
+    await expect(
+      reader.read(
+        new Request("http://test/body", {
+          method: "POST",
+          headers: { "content-type": "application/octet-stream" },
           body: "{}",
         }),
       ),

@@ -50,10 +50,17 @@ export type BackgroundCompletedEvent = Readonly<{
   readonly error?: ObservableError;
 }>;
 
+export type BackgroundRejectedEvent = Readonly<{
+  readonly requestId: string;
+  readonly route: string;
+  readonly reason: "queue-full";
+}>;
+
 export type ApplicationEventMap = {
   "request.completed": RequestCompletedEvent;
   "query.completed": QueryCompletedEvent;
   "background.completed": BackgroundCompletedEvent;
+  "background.rejected": BackgroundRejectedEvent;
 };
 
 export type ApplicationEventName = keyof ApplicationEventMap;

@@ -1,6 +1,11 @@
 import { HttpError } from "../errors";
 import type { TransactionMode } from "../core/types";
 import { withTimeout } from "../utils/timeout";
+import {
+  runMigrations,
+  type MigrationOptions,
+  type MigrationResult,
+} from "./migrations";
 
 /** Resultado mínimo esperado de uma query PostgreSQL. */
 export type QueryResult = {
@@ -72,15 +77,13 @@ export type ManagedPostgresPool = PostgresPool & {
 
 function queryWithoutCancellation<T>(
   query: () => Promise<T>,
-  options?: QueryExecutionOptions,
+  _options?: QueryExecutionOptions,
 ): Promise<T> {
-  if (options?.signal) {
-    return Promise.reject(
-      new Error(
-        "O pool PostgreSQL não implementa queryWithOptions e não pode executar uma operação cancelável.",
-      ),
-    );
-  }
+  // Pools compatíveis com `pg` não possuem uma operação cancelável universal.
+  // Executamos a query sem repassar o sinal e deixamos o executor aplicar o
+  // timeout de parede. A operação do driver pode continuar no banco depois de
+  // o request receber 504; integrações que suportam cancelamento devem expor
+  // `queryWithOptions` (como @empilha/pg).
   return query();
 }
 
@@ -130,6 +133,13 @@ export class PostgresExecutor {
   /** Define o runner que receberá as queries. */
   setRunner(runner: PostgresQueryRunner): void {
     this.runner = runner;
+  }
+
+  /** Executa migrations pelo mesmo runner configurado para a aplicação. */
+  async migrate(options: MigrationOptions): Promise<MigrationResult> {
+    if (!this.runner)
+      throw new Error("Nenhum query runner configurado para migrations.");
+    return runMigrations(this.runner, options);
   }
 
   assertTransactionSupport(): void {

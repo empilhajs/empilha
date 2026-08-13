@@ -7,6 +7,19 @@ on:
 
 jobs:
   check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun scripts/tools/link-local-core.ts
+      - name: Run checks
+        run: bun run check
+
+  postgres:
     strategy:
       fail-fast: false
       matrix:
@@ -33,15 +46,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun scripts/tools/link-local-core.ts
-      - name: Run checks
-        run: bun run check
         env:
-          # O commit de preparação atualiza os manifests antes de o release
-          # publicar o core e regenerar os lockfiles das integrações.
-          EMPILHA_RELEASE_SKIP_LOCKFILES: ${{ contains(github.event.head_commit.message, 'release') && '1' || '0' }}
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      - name: Run PostgreSQL integration checks
+        run: bun run check:packages
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - name: Smoke test migrations on PostgreSQL
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/empilha_ci
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: |
           migration_dir="$(mktemp -d)"
           trap 'rm -rf "$migration_dir"' EXIT

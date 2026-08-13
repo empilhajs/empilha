@@ -37,7 +37,11 @@ verificados por:
 bun run check:budgets
 ```
 
-A referência da release está em [`baselines/0.2.3.json`](./baselines/0.2.3.json).
+A referência da release é selecionada por plataforma (`0.2.3-linux.json` ou
+`0.2.3-macos.json`), com fallback explícito para
+[`baselines/0.2.3.json`](./baselines/0.2.3.json). Use
+`EMPILHA_BENCHMARK_BASELINE=/caminho/arquivo.json` para uma baseline de CI
+específica.
 
 ## Perfis de runtime
 
@@ -49,6 +53,7 @@ bun benchmarks/runtime/register-profile.ts 10000
 bun --expose-gc benchmarks/runtime/request-profile.ts
 bun --expose-gc benchmarks/runtime/plugin-profile.ts
 bun --expose-gc benchmarks/runtime/validator-profile.ts
+bun benchmarks/runtime/di-scope.ts
 ```
 
 Eles medem, respectivamente, parsing de paths, custo de registro, fases de
@@ -90,6 +95,10 @@ bun --expose-gc runtime/baseline.ts 25 1000
 ```
 
 ## Interpretação
+
+O baseline faz duas requisições de aquecimento antes de medir a resposta,
+reduzindo o impacto do primeiro caminho de execução. O JSON registra a
+quantidade em `warmupRequests`.
 
 Resultados não devem ser comparados entre máquinas diferentes sem registrar:
 

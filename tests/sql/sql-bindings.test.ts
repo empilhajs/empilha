@@ -166,6 +166,22 @@ describe("SQL bindings", () => {
     ).toBe("SELECT $1::text, E'\\' :body.ignored'");
   });
 
+  test("trata backslash somente como escape em strings E", () => {
+    const regular = compileNamedSQL(
+      String.raw`SELECT 'C:\path\', :param.id, 'don''t :query.ignored'`,
+    );
+    expect(regular.sql).toBe(
+      String.raw`SELECT 'C:\path\', $1, 'don''t :query.ignored'`,
+    );
+    expect(regular.bindings).toEqual(["param.id"]);
+
+    const escaped = compileNamedSQL(
+      String.raw`SELECT E'C:\\path\\', :param.id`,
+    );
+    expect(escaped.sql).toBe(String.raw`SELECT E'C:\\path\\', $1`);
+    expect(escaped.bindings).toEqual(["param.id"]);
+  });
+
   test("preserva bindings em comentários de bloco aninhados", () => {
     const compiled = compileNamedSQL(
       "/* outer :body.ignored /* inner :query.ignored */ still ignored */ SELECT :param.id",

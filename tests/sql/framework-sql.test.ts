@@ -155,7 +155,7 @@ describe("Empilha SQL", () => {
     expect(calls).toEqual(["SELECT 1"]);
   });
 
-  test("rejeita operação cancelável antes de usar client sem suporte", async () => {
+  test("executa pool sem cancelamento usando timeout de parede", async () => {
     const argumentsReceived: unknown[][] = [];
     const pool = {
       query: async () => ({ rows: [] }),
@@ -169,16 +169,14 @@ describe("Empilha SQL", () => {
     };
 
     const client = await postgresRunner(pool).connect!();
-    await expect(
-      client.query("BEGIN", undefined, {
-        signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow("queryWithOptions");
+    await client.query("BEGIN", undefined, {
+      signal: new AbortController().signal,
+    });
 
-    expect(argumentsReceived).toEqual([]);
+    expect(argumentsReceived).toEqual([["BEGIN", undefined]]);
   });
 
-  test("rejeita query cancelável antes de iniciar trabalho em pool incompatível", async () => {
+  test("executa query em pool incompatível sem repassar cancelamento", async () => {
     let calls = 0;
     const pool = {
       query: async () => {
@@ -191,12 +189,10 @@ describe("Empilha SQL", () => {
       }),
     };
 
-    await expect(
-      postgresRunner(pool).query("SELECT 1", [], {
-        signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow("queryWithOptions");
-    expect(calls).toBe(0);
+    await postgresRunner(pool).query("SELECT 1", [], {
+      signal: new AbortController().signal,
+    });
+    expect(calls).toBe(1);
   });
 
   test("encaminha opções para pools que oferecem cancelamento nativo", async () => {

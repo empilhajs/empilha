@@ -2,12 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { runMigrations } from "../database/migrations";
 
-const entryFile = process.argv[2] ?? "src/app.ts";
+const devArgs = process.argv.slice(2);
+const hotReload = devArgs.includes("--hot");
+const positional = devArgs.filter((arg) => !arg.startsWith("--"));
+const entryFile = positional[0] ?? "src/app.ts";
 const databaseDirectory = path.resolve("src/database");
 const queriesDirectory = path.resolve("src/queries");
 const queryArtifactFile = path.join(queriesDirectory, "query-artifacts.ts");
 const moduleFile = path.resolve(
-  process.argv[3] ??
+  positional[1] ??
     (fs.existsSync(path.resolve("src/modules/app.module.ts"))
       ? "src/modules/app.module.ts"
       : entryFile),
@@ -78,7 +81,7 @@ await initializeDatabase();
 type DevServer = ReturnType<typeof Bun.spawn>;
 
 function startServer(): DevServer {
-  return Bun.spawn(["bun", entryFile], {
+  return Bun.spawn(["bun", ...(hotReload ? ["--hot"] : []), entryFile], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
@@ -184,12 +187,14 @@ function watchSource(directory: string): fs.FSWatcher | undefined {
   });
 }
 
-const watchers = [
-  watchSource(path.resolve("src")),
-  fs.existsSync(path.resolve("empilha.config.ts"))
-    ? fs.watch(path.resolve("empilha.config.ts"), () => void rebuild())
-    : undefined,
-].filter((watcher): watcher is fs.FSWatcher => watcher !== undefined);
+const watchers = hotReload
+  ? []
+  : [
+      watchSource(path.resolve("src")),
+      fs.existsSync(path.resolve("empilha.config.ts"))
+        ? fs.watch(path.resolve("empilha.config.ts"), () => void rebuild())
+        : undefined,
+    ].filter((watcher): watcher is fs.FSWatcher => watcher !== undefined);
 
 monitorServer(server);
 

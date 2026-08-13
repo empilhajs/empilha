@@ -120,6 +120,9 @@ export class AuthorizationService {
       }
 
       if (result.payload !== undefined) {
+        // `user` representa identidade autenticada, não autorização. Em uma
+        // resposta 403 o principal continua disponível para auditoria interna
+        // e catchers, mas nunca é serializado automaticamente na resposta.
         requestContext().user = result.payload;
       }
 

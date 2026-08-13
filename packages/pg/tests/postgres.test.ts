@@ -1,4 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import {
+  Controller,
+  Get,
+  Result,
+  Sql,
+  createApplication,
+  defineModule,
+} from "empilha";
 import { postgres } from "../src";
 
 describe("@empilha/pg", () => {
@@ -77,4 +85,54 @@ describe("@empilha/pg", () => {
       close: false,
     });
   });
+
+  test.skipIf(!process.env.DATABASE_URL)(
+    "executa query e cancela pg_sleep com o plugin real",
+    async () => {
+      @Controller("/integration")
+      class IntegrationController {
+        @Get("/value")
+        @Sql("value")
+        @Result("one")
+        value() {}
+
+        @Get("/sleep")
+        @Sql("sleep")
+        @Result("one")
+        sleep() {}
+      }
+
+      const app = await createApplication(
+        defineModule({
+          name: "pg-integration",
+          controllers: [IntegrationController],
+          plugins: [
+            postgres({
+              url: process.env.DATABASE_URL!,
+              timeout: 50,
+              healthCheck: false,
+            }),
+          ],
+        }),
+        {
+          configure: (runtime) =>
+            runtime
+              .configureHttp({ cors: false })
+              .registerQuery("value", "SELECT 1 AS value")
+              .registerQuery("sleep", "SELECT pg_sleep(1) AS value"),
+        },
+      );
+
+      try {
+        const result = await app.test().get("/integration/value");
+        expect(result.status).toBe(200);
+        expect(await result.json()).toEqual({ value: 1 });
+
+        const timeout = await app.test().get("/integration/sleep");
+        expect(timeout.status).toBe(504);
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });

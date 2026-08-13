@@ -25,6 +25,10 @@ export type InjectableOptions = {
 export type Provider<T = unknown> = {
   useClass?: Constructor<T>;
   useFactory?: (container: Container) => T | Promise<T>;
+  /** Marca explicitamente uma factory assíncrona sem depender de nomes. */
+  async?: boolean;
+  /** Permite várias implementações para o mesmo token. */
+  multi?: boolean;
   useValue?: T;
   scope?: ProviderScope;
   onDispose?: (value: T) => void | Promise<void>;
@@ -36,11 +40,13 @@ export type ApplicationProvider<T = unknown> =
       provide: DependencyToken<T>;
       useClass: Constructor<T>;
       scope?: ProviderScope;
+      multi?: boolean;
       onDispose?: (value: T) => void | Promise<void>;
     }
   | {
       provide: DependencyToken<T>;
       useValue: T;
+      multi?: boolean;
       onDispose?: (value: T) => void | Promise<void>;
     }
   | {
@@ -48,17 +54,22 @@ export type ApplicationProvider<T = unknown> =
       useFactory: (...dependencies: never[]) => T | Promise<T>;
       inject: readonly DependencyToken[];
       scope?: ProviderScope;
+      async?: boolean;
+      multi?: boolean;
       onDispose?: (value: T) => void | Promise<void>;
     }
   | {
       provide: DependencyToken<T>;
       useExisting: DependencyToken<T>;
       scope?: ProviderScope;
+      multi?: boolean;
     };
 
 import {
+  getDependencyDescriptors,
   getDependencies,
   getInjectableScope,
+  registerDependencyDescriptor,
   registerDependencies,
   registerInjectableScope,
 } from "./dependency-metadata";
@@ -116,10 +127,45 @@ export function Inject(token: DependencyToken): ParameterDecorator {
       return;
     }
 
-    const targetType = target as Constructor;
-    const current = getDependencies(targetType);
-    current[parameterIndex] = token;
-    registerDependencies(targetType, current);
+    registerDependencyDescriptor(target as Constructor, parameterIndex, {
+      token,
+    });
+  };
+}
+
+/** Injeta `undefined` quando o provider não estiver registrado. */
+export function Optional(token: DependencyToken): ParameterDecorator {
+  return (target, propertyKey, parameterIndex) => {
+    if (propertyKey !== undefined)
+      throw new Error("@Optional só pode ser usado em construtores.");
+    registerDependencyDescriptor(target as Constructor, parameterIndex, {
+      token,
+      optional: true,
+    });
+  };
+}
+
+/** Injeta todas as implementações multi registradas para um token. */
+export function InjectAll(token: DependencyToken): ParameterDecorator {
+  return (target, propertyKey, parameterIndex) => {
+    if (propertyKey !== undefined)
+      throw new Error("@InjectAll só pode ser usado em construtores.");
+    registerDependencyDescriptor(target as Constructor, parameterIndex, {
+      token,
+      all: true,
+    });
+  };
+}
+
+/** Injeta uma função que resolve o provider somente quando for chamada. */
+export function Lazy(token: DependencyToken): ParameterDecorator {
+  return (target, propertyKey, parameterIndex) => {
+    if (propertyKey !== undefined)
+      throw new Error("@Lazy só pode ser usado em construtores.");
+    registerDependencyDescriptor(target as Constructor, parameterIndex, {
+      token,
+      lazy: true,
+    });
   };
 }
 
@@ -162,8 +208,11 @@ export type OwnedInstance = {
   onDispose?: (value: unknown) => void | Promise<void>;
 };
 
-function isAsyncFactory(factory: Function): boolean {
-  return factory.constructor?.name === "AsyncFunction";
+function isAsyncFactory(factory: Function, declared?: boolean): boolean {
+  if (declared !== undefined) return declared;
+  if (factory.constructor?.name === "AsyncFunction") return true;
+  const source = Function.prototype.toString.call(factory).trim();
+  return /^async(?:\s+function\b|\s*\(|\s+[A-Za-z_$][\w$]*\s*=>)/.test(source);
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
@@ -190,6 +239,15 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
  */
 export class Container {
   private readonly providers = new Map<DependencyToken, RegisteredProvider>();
+  private readonly multiProviders = new Map<
+    DependencyToken,
+    RegisteredProvider[]
+  >();
+  private readonly multiInstances = new Map<RegisteredProvider, unknown>();
+  private readonly multiPending = new Map<
+    RegisteredProvider,
+    Promise<unknown>
+  >();
   private readonly instances = new Map<DependencyToken, unknown>();
   private readonly pendingInstances = new Map<
     DependencyToken,
@@ -241,33 +299,56 @@ export class Container {
       );
     }
 
-    const existingProvider = this.providers.get(token);
-    const existingInstance = this.instances.get(token);
-    const existingOwned = this.ownedByToken.get(token);
-    if (this.pendingInstances.has(token)) {
-      throw new Error(
-        `O provider "${String(token)}" está sendo ativado e não pode ser substituído.`,
-      );
-    }
-    if (existingOwned?.onDispose) {
-      throw new Error(
-        `O provider "${String(token)}" já foi resolvido e possui disposal; ` +
-          "não pode ser substituído com segurança.",
-      );
-    }
-
-    if (existingProvider && existingInstance !== undefined) {
-      this.instances.delete(token);
-    }
-
-    this.providers.set(token, {
+    const registered = {
       token,
       ...normalized,
       scope: normalized.scope ?? "singleton",
-    } as unknown as RegisteredProvider);
-    this.instances.delete(token);
-    this.pendingInstances.delete(token);
+    } as unknown as RegisteredProvider;
+    if (registered.multi) {
+      const providers = this.multiProviders.get(token) ?? [];
+      providers.push(registered);
+      this.multiProviders.set(token, providers);
+    } else {
+      const existingProvider = this.providers.get(token);
+      const existingInstance = this.instances.get(token);
+      const existingOwned = this.ownedByToken.get(token);
+      if (this.pendingInstances.has(token)) {
+        throw new Error(
+          `O provider "${String(token)}" está sendo ativado e não pode ser substituído.`,
+        );
+      }
+      if (existingOwned?.onDispose) {
+        throw new Error(
+          `O provider "${String(token)}" já foi resolvido e possui disposal; ` +
+            "não pode ser substituído com segurança.",
+        );
+      }
+      if (existingProvider && existingInstance !== undefined)
+        this.instances.delete(token);
+      this.providers.set(token, registered);
+      this.instances.delete(token);
+      this.pendingInstances.delete(token);
+    }
     return this;
+  }
+
+  /** Resolve todas as implementações registradas com `multi: true`. */
+  resolveAll<T>(token: DependencyToken<T>): T[] {
+    this.assertActive();
+    return this.findProviders(token).map(
+      ({ provider, owner }) => this.resolveMulti(provider, owner) as T,
+    );
+  }
+
+  /** Resolve todas as implementações multi aguardando factories assíncronas. */
+  async resolveAllAsync<T>(token: DependencyToken<T>): Promise<T[]> {
+    this.assertActive();
+    return Promise.all(
+      this.findProviders(token).map(
+        async ({ provider, owner }) =>
+          (await this.resolveMultiAsync(provider, owner)) as T,
+      ),
+    );
   }
 
   /** Cria um container filho destinado a uma requisição. */
@@ -315,18 +396,36 @@ export class Container {
       const { provider } = located;
       if (provider.scope === "request") return true;
       if (provider.scope === "singleton") return false;
-      if (provider.useFactory) return true;
+      // A factory is not request-scoped merely because it is a factory. Its
+      // declared lifecycle is the source of truth; otherwise every
+      // controller depending on a singleton factory would be rebuilt per
+      // request.
+      if (provider.useFactory) return false;
       if (provider.useClass) {
-        return getDependencies(provider.useClass).some((dependency) =>
-          this.requiresRequestScope(dependency, visited),
+        return getDependencyDescriptors(provider.useClass).some((dependency) =>
+          this.requiresRequestScope(dependency.token, visited),
         );
       }
       return false;
     }
 
+    const multi = this.findProviders(token);
+    if (
+      multi.some(({ provider, owner }) => {
+        if (provider.scope === "request") return true;
+        if (provider.scope === "singleton" || provider.useFactory) return false;
+        return provider.useClass
+          ? getDependencyDescriptors(provider.useClass).some((dependency) =>
+              owner.requiresRequestScope(dependency.token, visited),
+            )
+          : false;
+      })
+    )
+      return true;
+
     if (typeof token !== "function") return false;
-    return getDependencies(token).some((dependency) =>
-      this.requiresRequestScope(dependency, visited),
+    return getDependencyDescriptors(token).some((dependency) =>
+      this.requiresRequestScope(dependency.token, visited),
     );
   }
 
@@ -470,11 +569,19 @@ export class Container {
     if (provider.scope !== "transient") {
       const cached = instanceOwner.instances.get(token);
       if (instanceOwner.instances.has(token)) return cached as T;
+      if (instanceOwner.pendingInstances.has(token)) {
+        throw new TypeError(
+          `O provider "${String(token)}" está sendo ativado de forma assíncrona; use resolveAsync().`,
+        );
+      }
     }
 
     const resolver = provider.scope === "singleton" ? owner : this;
     resolver.assertActive();
-    if (provider.useFactory && isAsyncFactory(provider.useFactory)) {
+    if (
+      provider.useFactory &&
+      isAsyncFactory(provider.useFactory, provider.async)
+    ) {
       throw new TypeError(
         `O provider "${String(token)}" é assíncrono; use resolveAsync().`,
       );
@@ -530,6 +637,7 @@ export class Container {
     if (this.disposed) return true;
     if (
       this.pendingInstances.size > 0 ||
+      this.multiPending.size > 0 ||
       this.disposeHooks.size > 0 ||
       this.ownedInstances.some((instance) => instance.onDispose !== undefined)
     ) {
@@ -543,9 +651,11 @@ export class Container {
   private disposalState() {
     return {
       pendingInstances: this.pendingInstances,
+      multiPending: this.multiPending,
       ownedInstances: this.ownedInstances,
       ownedByToken: this.ownedByToken,
       instances: this.instances,
+      multiInstances: this.multiInstances,
       disposeHooks: this.disposeHooks,
     };
   }
@@ -569,9 +679,108 @@ export class Container {
     return undefined;
   }
 
+  private findProviders(token: DependencyToken): LocatedProvider[] {
+    const local = this.multiProviders.get(token);
+    if (local) return local.map((provider) => ({ provider, owner: this }));
+    return this.parent?.findProviders(token) ?? [];
+  }
+
+  private resolveMulti(
+    provider: RegisteredProvider,
+    owner: Container,
+  ): unknown {
+    if (provider.scope === "request" && !this.requestScope) {
+      throw new Error(
+        `O provider "${String(provider.token)}" requer um escopo de requisição ativo.`,
+      );
+    }
+    const instanceOwner = provider.scope === "singleton" ? owner : this;
+    if (
+      provider.scope !== "transient" &&
+      instanceOwner.multiInstances.has(provider)
+    )
+      return instanceOwner.multiInstances.get(provider);
+    const resolver = provider.scope === "singleton" ? owner : this;
+    resolver.assertActive();
+    if (
+      provider.useFactory &&
+      isAsyncFactory(provider.useFactory, provider.async)
+    ) {
+      throw new TypeError(
+        `O provider "${String(provider.token)}" é assíncrono; use resolveAllAsync().`,
+      );
+    }
+    const value = provider.useClass
+      ? resolver.instantiate(provider.useClass, [provider.token])
+      : provider.useFactory
+        ? provider.useFactory(resolver)
+        : provider.useValue;
+    if (isPromiseLike(value)) {
+      throw new TypeError(
+        `O provider "${String(provider.token)}" é assíncrono; use resolveAllAsync().`,
+      );
+    }
+    if (provider.scope !== "transient")
+      instanceOwner.multiInstances.set(provider, value);
+    instanceOwner.ownedInstances.push({
+      token: provider.token,
+      value,
+      onDispose: provider.onDispose as OwnedInstance["onDispose"],
+    });
+    return value;
+  }
+
+  private async resolveMultiAsync(
+    provider: RegisteredProvider,
+    owner: Container,
+  ): Promise<unknown> {
+    if (provider.scope === "request" && !this.requestScope) {
+      throw new Error(
+        `O provider "${String(provider.token)}" requer um escopo de requisição ativo.`,
+      );
+    }
+    const instanceOwner = provider.scope === "singleton" ? owner : this;
+    if (
+      provider.scope !== "transient" &&
+      instanceOwner.multiInstances.has(provider)
+    )
+      return instanceOwner.multiInstances.get(provider);
+    if (provider.scope !== "transient") {
+      const pending = instanceOwner.multiPending.get(provider);
+      if (pending) return pending;
+    }
+    const resolver = provider.scope === "singleton" ? owner : this;
+    resolver.assertActive();
+    const create = async () => {
+      const value = provider.useClass
+        ? await resolver.instantiateAsync(provider.useClass, [provider.token])
+        : provider.useFactory
+          ? await provider.useFactory(resolver)
+          : provider.useValue;
+      if (provider.scope !== "transient")
+        instanceOwner.multiInstances.set(provider, value);
+      instanceOwner.ownedInstances.push({
+        token: provider.token,
+        value,
+        onDispose: provider.onDispose as OwnedInstance["onDispose"],
+      });
+      return value;
+    };
+    if (provider.scope === "transient") return create();
+    const pending = create();
+    instanceOwner.multiPending.set(provider, pending);
+    try {
+      return await pending;
+    } finally {
+      if (instanceOwner.multiPending.get(provider) === pending)
+        instanceOwner.multiPending.delete(provider);
+    }
+  }
+
   private instantiate<T>(target: Constructor<T>, stack: DependencyToken[]): T {
-    const tokens = getDependencies(target);
-    const args = tokens.map((dependency) => {
+    const descriptors = getDependencyDescriptors(target);
+    const args = descriptors.map((descriptor) => {
+      const dependency = descriptor.token;
       if (dependency === undefined) {
         throw new Error(
           `"${target.name}" não pode ser instanciada. ` +
@@ -579,6 +788,10 @@ export class Container {
             "e todos os parâmetros do construtor estão registrados no container.",
         );
       }
+      if (descriptor.all) return this.resolveAll(dependency);
+      if (descriptor.lazy)
+        return () => this.resolveWithStack(dependency, stack);
+      if (descriptor.optional && !this.has(dependency)) return undefined;
       return this.resolveWithStack(dependency, stack);
     });
 
@@ -590,9 +803,10 @@ export class Container {
     target: Constructor<T>,
     stack: DependencyToken[],
   ): Promise<T> {
-    const tokens = getDependencies(target);
+    const descriptors = getDependencyDescriptors(target);
     const args = await Promise.all(
-      tokens.map((dependency) => {
+      descriptors.map((descriptor) => {
+        const dependency = descriptor.token;
         if (dependency === undefined) {
           throw new Error(
             `"${target.name}" não pode ser instanciada. ` +
@@ -600,6 +814,10 @@ export class Container {
               "e todos os parâmetros do construtor estão registrados no container.",
           );
         }
+        if (descriptor.all) return this.resolveAllAsync(dependency);
+        if (descriptor.lazy)
+          return () => this.resolveAsyncWithStack(dependency, stack);
+        if (descriptor.optional && !this.has(dependency)) return undefined;
         return this.resolveAsyncWithStack(dependency, stack);
       }),
     );

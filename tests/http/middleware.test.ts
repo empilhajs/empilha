@@ -150,4 +150,44 @@ describe("Empilha scoped middleware", () => {
     expect((await app.test().get("/permissions/public")).status).toBe(200);
     expect((await app.test().get("/permissions/private")).status).toBe(403);
   });
+
+  test("preserva a ordem visual de múltiplos Use no mesmo método", async () => {
+    const order: string[] = [];
+    const first: MiddlewareFn = async (_request, next) => {
+      order.push("first");
+      const response = await next();
+      order.push("first-after");
+      return response;
+    };
+    const second: MiddlewareFn = async (_request, next) => {
+      order.push("second");
+      const response = await next();
+      order.push("second-after");
+      return response;
+    };
+
+    @Controller("/multiple-use")
+    class MultipleUse {
+      @Get("/")
+      @Use(first)
+      @Use(second)
+      get() {
+        order.push("handler");
+        return { ok: true };
+      }
+    }
+
+    const app = await createApplication(testModule([MultipleUse]), {
+      configure: (runtime) => runtime.configureHttp({ cors: false }),
+    });
+
+    expect((await app.test().get("/multiple-use")).status).toBe(200);
+    expect(order).toEqual([
+      "first",
+      "second",
+      "handler",
+      "second-after",
+      "first-after",
+    ]);
+  });
 });

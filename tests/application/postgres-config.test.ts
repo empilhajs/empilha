@@ -62,7 +62,7 @@ describe("configuração PostgreSQL", () => {
     expect(closed).toBe(true);
   });
 
-  test("rejeita pool gerenciado sem cancelamento quando há timeout", async () => {
+  test("aceita pool gerenciado sem cancelamento com timeout de parede", async () => {
     const pool: ManagedPostgresPool = {
       query: async () => ({ rows: [] }),
       connect: async () => ({
@@ -72,10 +72,10 @@ describe("configuração PostgreSQL", () => {
       end() {},
     };
 
-    await expect(
-      createApplication(testModule([]), {
-        configure: (runtime) => runtime.postgres(pool),
-      }),
-    ).rejects.toThrow("queryWithOptions");
+    const app = await createApplication(testModule([]), {
+      configure: (runtime) => runtime.postgres(pool),
+    });
+    expect((await app.test().get("/health/ready")).status).toBe(200);
+    await app.close();
   });
 });

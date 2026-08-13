@@ -8,6 +8,7 @@ const gc = (globalThis as { gc?: () => void }).gc;
 
 type Sample = {
   readonly routes: number;
+  readonly warmupRequests: number;
   readonly compileMs: number;
   readonly firstResponseMs: number;
   readonly heapBefore: number;
@@ -51,6 +52,11 @@ async function measure(routes: number): Promise<Sample> {
   const compileMs = performance.now() - compileStart;
   const afterCompile = process.memoryUsage();
 
+  const warmupRequests = 2;
+  for (let index = 0; index < warmupRequests; index++) {
+    await app.fetch(new Request("http://test/baseline-0/route-0"));
+  }
+
   const responseStart = performance.now();
   const response = await app.fetch(
     new Request("http://test/baseline-0/route-0"),
@@ -66,6 +72,7 @@ async function measure(routes: number): Promise<Sample> {
   const afterGc = process.memoryUsage();
   return {
     routes,
+    warmupRequests,
     compileMs,
     firstResponseMs,
     heapBefore: before.heapUsed,

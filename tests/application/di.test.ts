@@ -5,7 +5,10 @@ import {
   createApplication,
   Get,
   Inject,
+  InjectAll,
   Injectable,
+  Lazy,
+  Optional,
 } from "../../src";
 import { Container } from "../../src/di/index";
 import { testModule } from "../helpers/test-utils";
@@ -38,6 +41,35 @@ describe("dependency injection", () => {
     container.provide(indirect, { useFactory: () => Promise.resolve("async") });
     expect(() => container.resolve(indirect)).toThrow("use resolveAsync()");
     await expect(container.resolveAsync(indirect)).resolves.toBe("async");
+
+    const asyncParameter = Symbol("async-parameter");
+    container.provide(asyncParameter, {
+      useFactory: async (scope) => String(scope),
+    });
+    expect(() => container.resolve(asyncParameter)).toThrow(
+      "use resolveAsync()",
+    );
+  });
+
+  test("não executa uma factory Promise duas vezes em resoluções concorrentes", async () => {
+    const token = Symbol("concurrent-factory");
+    let activations = 0;
+    let finish!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => {
+      finish = resolve;
+    });
+    const container = new Container().provide(token, {
+      useFactory: () => {
+        activations++;
+        return pending;
+      },
+    });
+
+    const asyncResolution = container.resolveAsync(token);
+    expect(() => container.resolve(token)).toThrow("resolveAsync()");
+    expect(activations).toBe(1);
+    finish("ready");
+    await expect(asyncResolution).resolves.toBe("ready");
   });
 
   test("respeita o escopo declarado em Injectable", async () => {
@@ -179,6 +211,148 @@ describe("dependency injection", () => {
 
     expect(firstScope.resolve(SingletonService)).toBe(rootInstance);
     expect(secondScope.resolve(SingletonService)).toBe(rootInstance);
+  });
+
+  test("não transforma controller em request-scoped por depender de factory singleton", () => {
+    class FactoryService {}
+    class SingletonController {}
+
+    const container = new Container()
+      .provide(FactoryService, {
+        useFactory: () => new FactoryService(),
+        scope: "singleton",
+      })
+      .provide(SingletonController, {
+        useClass: SingletonController,
+        scope: "singleton",
+      });
+
+    expect(container.requiresRequestScope(FactoryService)).toBe(false);
+    expect(container.requiresRequestScope(SingletonController)).toBe(false);
+  });
+
+  test("resolve dependência opcional ausente como undefined", () => {
+    class Missing {}
+    class Consumer {
+      constructor(@Optional(Missing) readonly value: Missing | undefined) {}
+    }
+    const container = new Container().provide(Consumer);
+
+    expect(container.resolve(Consumer).value).toBeUndefined();
+  });
+
+  test("resolve todas as implementações multi na ordem de registro", () => {
+    const plugin = Symbol("plugin");
+    class Consumer {
+      constructor(@InjectAll(plugin) readonly plugins: string[]) {}
+    }
+    const container = new Container()
+      .provide(plugin, { useValue: "first", multi: true })
+      .provide(plugin, { useValue: "second", multi: true })
+      .provide(Consumer);
+
+    expect(container.resolve(Consumer).plugins).toEqual(["first", "second"]);
+    expect(container.resolveAll(plugin)).toEqual(["first", "second"]);
+  });
+
+  test("mantém multi singletons no container raiz e descarta apenas no fechamento", async () => {
+    const plugin = Symbol("scoped-plugin");
+    let activations = 0;
+    let disposals = 0;
+    const root = new Container().provide(plugin, {
+      useFactory: () => ({ id: ++activations }),
+      multi: true,
+      onDispose: () => {
+        disposals++;
+      },
+    });
+    const firstScope = root.createScope();
+    const secondScope = root.createScope();
+
+    expect(firstScope.resolveAll(plugin)[0]).toBe(
+      secondScope.resolveAll(plugin)[0],
+    );
+    expect(activations).toBe(1);
+
+    await firstScope.dispose();
+    await secondScope.dispose();
+    expect(disposals).toBe(0);
+
+    await root.dispose();
+    expect(disposals).toBe(1);
+  });
+
+  test("considera todos os multi-providers ao definir o scope do controller", async () => {
+    const plugin = Symbol("request-plugin");
+    let requestInstances = 0;
+    class RequestPlugin {
+      readonly id = ++requestInstances;
+    }
+    class Consumer {
+      constructor(
+        @InjectAll(plugin)
+        readonly plugins: Array<{ id: number }>,
+      ) {}
+
+      @Get("/")
+      get() {
+        return this.plugins.map(({ id }) => id);
+      }
+    }
+    Controller("/multi-scope")(Consumer);
+    const app = await createApplication(
+      testModule([Consumer], {
+        providers: [
+          { provide: plugin, useValue: { id: 0 }, multi: true },
+          {
+            provide: plugin,
+            useClass: RequestPlugin,
+            scope: "request",
+            multi: true,
+          },
+        ],
+      }),
+      { configure: (runtime) => runtime.configureHttp({ cors: false }) },
+    );
+
+    expect(await (await app.test().get("/multi-scope")).json()).toEqual([0, 1]);
+    expect(await (await app.test().get("/multi-scope")).json()).toEqual([0, 2]);
+    await app.close();
+  });
+
+  test("adicionar multi-provider não invalida singleton comum do mesmo token", () => {
+    const token = Symbol("mixed-provider");
+    const singleton = { kind: "single" };
+    const container = new Container().provide<{ kind: string }>(token, {
+      useValue: singleton,
+    });
+
+    expect(container.resolve<{ kind: string }>(token)).toBe(singleton);
+    container.provide<{ kind: string }>(token, {
+      useValue: { kind: "multi" },
+      multi: true,
+    });
+
+    expect(container.resolve<{ kind: string }>(token)).toBe(singleton);
+    expect(container.resolveAll<{ kind: string }>(token)).toEqual([
+      { kind: "multi" },
+    ]);
+  });
+
+  test("adia a resolução de provider com @Lazy", () => {
+    const token = Symbol("lazy");
+    let activations = 0;
+    class Consumer {
+      constructor(@Lazy(token) readonly getValue: () => string) {}
+    }
+    const container = new Container()
+      .provide(token, { useFactory: () => (++activations, "ready") })
+      .provide(Consumer);
+    const consumer = container.resolve(Consumer);
+
+    expect(activations).toBe(0);
+    expect(consumer.getValue()).toBe("ready");
+    expect(activations).toBe(1);
   });
 
   test("cria providers request-scoped automaticamente por requisição", async () => {

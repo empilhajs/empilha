@@ -3,6 +3,12 @@
 Integra JWT ao Empilha usando `jose`, sem acoplar o framework principal ao
 provedor de tokens.
 
+Instale as dependências do plugin explicitamente:
+
+```sh
+bun add @empilha/jwt jose @sinclair/typebox
+```
+
 ```ts
 import { createApplication, defineModule } from "empilha";
 import { jwt } from "@empilha/jwt";

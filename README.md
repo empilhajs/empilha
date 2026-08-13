@@ -32,6 +32,8 @@ bun create empilha minha-api
 cd minha-api
 bun install
 bun run dev
+# HMR nativo do Bun (sem reiniciar o processo manualmente)
+bun run dev -- --hot
 ```
 
 ## Uma rota em poucos linhas
@@ -125,8 +127,10 @@ Gere os artefatos e valide o projeto com:
 
 ```sh
 bun run generate:queries
-bun scripts/application/doctor.ts --strict
+bunx empilha --strict --module src/modules/app.module.ts
 ```
+
+A documentação operacional e de contratos fica no repositório `empilha-docs`.
 
 ## Integrações oficiais
 

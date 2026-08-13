@@ -17,6 +17,11 @@ export {
 
 export { compileNamedSQL, postgresRunner } from "./sql";
 export {
+  runMigrations,
+  type MigrationOptions,
+  type MigrationResult,
+} from "./sql";
+export {
   ensureBuiltinFormats,
   type FormatRegistryLike,
 } from "./schema/formats";
@@ -37,6 +42,13 @@ export {
   type ServerHandler,
   type ServerRequest,
   type ServerResponse,
+} from "./http";
+export {
+  sse,
+  upgradeWebSocket,
+  type SseEvent,
+  type SseSource,
+  type WebSocketUpgradeServer,
 } from "./http";
 
 export {
@@ -95,7 +107,10 @@ export {
 export {
   Container,
   Inject,
+  InjectAll,
   Injectable,
+  Lazy,
+  Optional,
   type Constructor,
   type DependencyToken,
   type InjectableOptions,
@@ -190,6 +205,7 @@ export {
   type ApplicationEventMap,
   type ApplicationEventName,
   type BackgroundCompletedEvent,
+  type BackgroundRejectedEvent,
   type QueryCompletedEvent,
   type RequestCompletedEvent,
 } from "./runtime";

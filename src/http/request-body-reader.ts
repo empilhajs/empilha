@@ -15,7 +15,7 @@ export class RequestBodyError extends Error {
 }
 
 /**
- * Lê e valida o body JSON de uma requisição.
+ * Lê e valida o body de uma requisição.
  *
  * A leitura é feita em chunks para respeitar o limite de bytes antes de
  * montar a string completa. O timeout cancela o reader e o request scope.
@@ -60,7 +60,7 @@ export class JsonBodyReader {
   }
 
   /**
-   * Lê, decodifica e faz parse do body JSON.
+   * Lê, decodifica e faz parse do body conforme o Content-Type.
    *
    * @param request - Request cujo body será consumido.
    * @param scope - Scope usado para abortar a leitura em timeout.
@@ -76,25 +76,25 @@ export class JsonBodyReader {
       return undefined;
     }
 
-    const contentType = request.headers.get("content-type");
-    if (
-      contentType !== null &&
-      !/^application\/json(?:\s*;|\s*$)/i.test(contentType)
-    ) {
+    const contentType =
+      request.headers.get("content-type") ?? "application/json";
+    if (!this.supportedContentType(contentType)) {
       throw new RequestBodyError(415, "Unsupported media type");
-    }
-
-    if (this.timeoutMs !== null) {
-      return this.readWithTimeout(request.body, scope);
     }
 
     // Content-Length é apenas uma indicação do cliente. O limite é aplicado
     // aos bytes efetivamente lidos antes de o JSON ser materializado.
-    return this.readChunks(request.body);
+    const bytes =
+      this.timeoutMs !== null
+        ? await this.readWithTimeout(request.body, scope)
+        : await this.readChunks(request.body);
+    return this.parseBody(bytes, contentType);
   }
 
   /** Lê sem materializar um body cujo tamanho real ainda não foi provado. */
-  private async readChunks(body: ReadableStream<Uint8Array>): Promise<unknown> {
+  private async readChunks(
+    body: ReadableStream<Uint8Array>,
+  ): Promise<Uint8Array> {
     const reader = body.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
@@ -122,7 +122,7 @@ export class JsonBodyReader {
       reader.releaseLock();
     }
 
-    if (totalBytes === 0) return undefined;
+    if (totalBytes === 0) return new Uint8Array();
 
     const bytes = new Uint8Array(totalBytes);
     let offset = 0;
@@ -131,13 +131,13 @@ export class JsonBodyReader {
       offset += chunk.byteLength;
     }
 
-    return this.parseJson(JSON_DECODER.decode(bytes));
+    return bytes;
   }
 
   private async readWithTimeout(
     body: ReadableStream<Uint8Array>,
     scope?: RequestScope,
-  ): Promise<unknown> {
+  ): Promise<Uint8Array> {
     const reader = body.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
@@ -190,9 +190,7 @@ export class JsonBodyReader {
       }
     }
 
-    if (totalBytes === 0) {
-      return undefined;
-    }
+    if (totalBytes === 0) return new Uint8Array();
 
     const bytes = new Uint8Array(totalBytes);
     let offset = 0;
@@ -202,15 +200,66 @@ export class JsonBodyReader {
       offset += chunk.byteLength;
     }
 
-    return this.parseJson(JSON_DECODER.decode(bytes));
+    return bytes;
   }
 
-  private parseJson(text: string): unknown {
+  private parseBody(bytes: Uint8Array, contentType: string): unknown {
+    if (bytes.byteLength === 0) return undefined;
+
+    const mediaType = contentType.split(";", 1)[0]!.trim().toLowerCase();
+    const text = JSON_DECODER.decode(bytes).replace(/^\uFEFF/, "");
+
+    if (mediaType === "text/plain" || mediaType.startsWith("text/")) {
+      return text;
+    }
+
+    if (mediaType === "application/x-www-form-urlencoded") {
+      const result: Record<string, string | string[]> = Object.create(null);
+      for (const [key, value] of new URLSearchParams(text)) {
+        const previous = result[key];
+        if (previous === undefined) result[key] = value;
+        else if (Array.isArray(previous)) previous.push(value);
+        else result[key] = [previous, value];
+      }
+      return result;
+    }
+
+    if (mediaType === "multipart/form-data") {
+      const form = new Request("http://empilha/body", {
+        method: "POST",
+        headers: { "content-type": contentType },
+        body: bytes.buffer as ArrayBuffer,
+      });
+      return form.formData().then((data) => {
+        const result: Record<
+          string,
+          FormDataEntryValue | FormDataEntryValue[]
+        > = Object.create(null);
+        for (const [key, value] of data.entries()) {
+          const previous = result[key];
+          if (previous === undefined) result[key] = value;
+          else if (Array.isArray(previous)) previous.push(value);
+          else result[key] = [previous, value];
+        }
+        return result;
+      });
+    }
+
     try {
-      return JSON.parse(text.replace(/^\uFEFF/, "")) as unknown;
+      return JSON.parse(text) as unknown;
     } catch {
       throw new RequestBodyError(400, "Invalid JSON body");
     }
+  }
+
+  private supportedContentType(contentType: string): boolean {
+    const mediaType = contentType.split(";", 1)[0]!.trim().toLowerCase();
+    return (
+      mediaType === "application/json" ||
+      mediaType === "application/x-www-form-urlencoded" ||
+      mediaType === "multipart/form-data" ||
+      mediaType.startsWith("text/")
+    );
   }
 
   private getDeclaredContentLength(request: Request): number | null {

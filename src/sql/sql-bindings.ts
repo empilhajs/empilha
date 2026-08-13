@@ -250,8 +250,14 @@ export function compileNamedSQL(
   const bindingTypes = new Map<string, string>();
   let prepared = "";
   let index = 0;
-  let state: "normal" | "single" | "double" | "dollar" | "line" | "block" =
-    "normal";
+  let state:
+    | "normal"
+    | "single"
+    | "escape-single"
+    | "double"
+    | "dollar"
+    | "line"
+    | "block" = "normal";
   let dollarTag = "";
   let blockDepth = 0;
 
@@ -259,11 +265,11 @@ export function compileNamedSQL(
     const current = sql[index];
     const next = sql[index + 1];
 
-    if (state === "single") {
+    if (state === "single" || state === "escape-single") {
       prepared += current;
       index++;
 
-      if (current === "\\" && next !== undefined) {
+      if (state === "escape-single" && current === "\\" && next !== undefined) {
         prepared += next;
         index++;
       } else if (current === "'" && next === "'") {
@@ -333,7 +339,13 @@ export function compileNamedSQL(
     }
 
     if (current === "'") {
-      state = "single";
+      const prefix = sql[index - 1];
+      const prefixBefore = sql[index - 2];
+      state =
+        (prefix === "e" || prefix === "E") &&
+        (prefixBefore === undefined || !/[A-Za-z0-9_$]/.test(prefixBefore))
+          ? "escape-single"
+          : "single";
       prepared += current;
       index++;
       continue;

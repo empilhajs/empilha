@@ -1,6 +1,6 @@
 {
   "name": "empilha",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": false,
   "description": "Framework HTTP para Bun e TypeScript baseado em decorators e Web Standards.",
   "keywords": [
@@ -96,6 +96,7 @@
     "benchmark:types": "bun benchmarks/build/type-profile.ts",
     "benchmark:plugins": "bun --expose-gc benchmarks/runtime/plugin-profile.ts",
     "benchmark:validators": "bun --expose-gc benchmarks/runtime/validator-profile.ts",
+    "benchmark:di": "bun benchmarks/runtime/di-scope.ts",
     "check:budgets": "bun scripts/checks/check-budgets.ts",
     "release:check": "bun scripts/release/release.ts",
     "release:locks": "bun scripts/release/release.ts --refresh-lockfiles",

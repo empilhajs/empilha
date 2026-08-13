@@ -134,6 +134,11 @@ function compileHandler(input: RouteCompilerInput): ServerHandler {
           : await executeRoute();
 
       if (route.afterCommit !== undefined) {
+        if (!route.transaction) {
+          throw new Error(
+            `A rota ${String(route.propertyKey)} usa AfterCommit sem transação.`,
+          );
+        }
         await invokeController(controller, route.afterCommit, [request]);
       }
 

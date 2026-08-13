@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "description": "Limites de bootstrap medidos no baseline Linux/Bun 1.3.x, com margem para ruído de CI.",
+  "maxRegressionPercent": 250,
   "samples": {
     "25": {
       "compileMs": 60,

@@ -179,6 +179,7 @@ describe("Empilha background handlers", () => {
   test("limita concorrência e rejeita quando a fila está cheia", async () => {
     const releases: Array<() => void> = [];
     const started: number[] = [];
+    const rejected: string[] = [];
     let notifySecond!: () => void;
     const secondStarted = new Promise<void>((resolve) => {
       notifySecond = resolve;
@@ -210,6 +211,9 @@ describe("Empilha background handlers", () => {
           queueLimit: 1,
         }),
     });
+    app.events.on("background.rejected", (event) => {
+      rejected.push(event.route);
+    });
 
     const first = await app.test().get("/limited-background");
     await Promise.resolve();
@@ -221,6 +225,7 @@ describe("Empilha background handlers", () => {
     expect(second.status).toBe(202);
     expect(third.status).toBe(503);
     expect(started).toEqual([1]);
+    expect(rejected).toEqual(["/"]);
 
     releases.shift()?.();
     await secondStarted;

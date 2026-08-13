@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ensureBuiltinFormats } from "../../src/schema/formats";
 
 describe("builtin schema formats", () => {
   test("registra os formatos internos somente quando um schema é compilado", () => {
@@ -25,5 +26,26 @@ describe("builtin schema formats", () => {
       "true",
       "true",
     ]);
+  });
+
+  test("registra formatos comuns de produção", () => {
+    const registered: Record<string, (value: string) => boolean> = {};
+    const registry = {
+      Has: (name: string) => name in registered,
+      Set: (name: string, check: (value: string) => boolean) => {
+        registered[name] = check;
+      },
+    };
+
+    ensureBuiltinFormats(registry);
+
+    expect(registered.uuid?.("550e8400-e29b-41d4-a716-446655440000")).toBe(
+      true,
+    );
+    expect(registered["date-time"]?.("2026-08-06T12:00:00Z")).toBe(true);
+    expect(registered.uri?.("https://empilha.dev/docs")).toBe(true);
+    expect(registered.ipv4?.("192.168.1.1")).toBe(true);
+    expect(registered.hostname?.("api.empilha.dev")).toBe(true);
+    expect(registered.ipv4?.("999.1.1.1")).toBe(false);
   });
 });

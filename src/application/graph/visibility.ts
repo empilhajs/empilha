@@ -57,20 +57,41 @@ export function findVisibleProvider(
   return undefined;
 }
 
+export function findVisibleProviders(
+  current: ModuleDefinition,
+  token: DependencyToken,
+  visited = new Set<ModuleDefinition>(),
+): VisibleProvider[] {
+  if (visited.has(current)) return [];
+  visited.add(current);
+  const local = current.providers
+    .filter((candidate) => providerToken(candidate) === token)
+    .map((provider) => ({ owner: current, provider }));
+  if (local.length > 0) return local;
+  if (current.controllers.includes(token as ModuleController))
+    return [{ owner: current, provider: token as ModuleController }];
+  return current.imports.flatMap((imported) =>
+    exportedTokens(imported).includes(token)
+      ? findVisibleProviders(imported, token, visited)
+      : [],
+  );
+}
+
 export function requiresRequestScope(
   current: ModuleDefinition,
   token: DependencyToken,
   stack = new Set<DependencyToken>(),
 ): boolean {
   if (stack.has(token)) return false;
-  const resolved = findVisibleProvider(current, token);
-  if (resolved === undefined) return false;
+  const resolved = findVisibleProviders(current, token);
+  if (resolved.length === 0) return false;
   const nextStack = new Set(stack).add(token);
-  return (
-    providerScope(resolved.provider) === "request" ||
-    providerDependencies(resolved.provider).some((dependency) =>
-      requiresRequestScope(resolved.owner, dependency, nextStack),
-    )
+  return resolved.some(
+    (candidate) =>
+      providerScope(candidate.provider) === "request" ||
+      providerDependencies(candidate.provider).some((dependency) =>
+        requiresRequestScope(candidate.owner, dependency, nextStack),
+      ),
   );
 }
 
@@ -80,22 +101,24 @@ export function findAsyncRequestFactory(
   stack = new Set<DependencyToken>(),
 ): { token: DependencyToken; provider: ModuleProvider } | undefined {
   if (stack.has(token)) return undefined;
-  const resolved = findVisibleProvider(current, token);
-  if (resolved === undefined) return undefined;
-  if (
-    providerScope(resolved.provider) === "request" &&
-    hasDeclaredAsyncFactory(resolved.provider)
-  ) {
-    return { token, provider: resolved.provider };
-  }
+  const resolved = findVisibleProviders(current, token);
+  if (resolved.length === 0) return undefined;
   const nextStack = new Set(stack).add(token);
-  for (const dependency of providerDependencies(resolved.provider)) {
-    const found = findAsyncRequestFactory(
-      resolved.owner,
-      dependency,
-      nextStack,
-    );
-    if (found !== undefined) return found;
+  for (const candidate of resolved) {
+    if (
+      providerScope(candidate.provider) === "request" &&
+      hasDeclaredAsyncFactory(candidate.provider)
+    ) {
+      return { token, provider: candidate.provider };
+    }
+    for (const dependency of providerDependencies(candidate.provider)) {
+      const found = findAsyncRequestFactory(
+        candidate.owner,
+        dependency,
+        nextStack,
+      );
+      if (found !== undefined) return found;
+    }
   }
   return undefined;
 }
