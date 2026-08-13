@@ -15,10 +15,6 @@
         "empilha": ">=0.2.4",
         "jose": "^6.0.0",
       },
-      "optionalPeers": [
-        "@sinclair/typebox",
-        "empilha",
-      ],
     },
   },
   "packages": {
@@ -72,7 +68,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "empilha": ["empilha@0.2.4", "", { "dependencies": { "@sinclair/typebox": "^0.34.52", "swagger-ui-dist": "5.32.11" }, "bin": { "empilha": "scripts/application/doctor.ts" } }, "sha512-8VGjLD5sl+VDjMnp1drzhxukWkxNjXkT01fjVaEoRN9MkjfFj9PUWq17CM3n6ZwAdxMejaRSNXp3UJirGI54Eg=="],
+    "empilha": ["empilha@0.2.4", "", { "dependencies": { "@sinclair/typebox": "^0.34.52", "swagger-ui-dist": "5.32.11" }, "bin": { "empilha": "scripts/application/doctor.ts" } }, "sha512-8+FkBcTy0/24gm3Ks4F/lxgownndweTa9CT6vafg0DA5gywkfEBUecvScXE88ok9mijo59TWNGipS5y1AnCv0Q=="],
 
     "jose": ["jose@6.2.5", "", {}, "sha512-2E5L2yRp03FnwreJLJX8/r7mHiZICCf8kG7fAsTWkSQTDAcc46NIZoQLKy+EJ8sPoJlxyS4OQR5H70LjIZZlIQ=="],
 
